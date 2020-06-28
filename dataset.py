@@ -177,6 +177,31 @@ def find_min_rect_angle(vertices):
     return angle_list[best_index] / 180 * math.pi
 
 
+def rad2deg(rad):
+    return (rad / (2 * math.pi)) * 360
+
+
+def deg2rad(deg):
+    return (deg/360) * (2 * math.pi)
+
+
+def find_min_rect_angle2(vertices):
+    """Find min area rectangle."""
+
+    vertices = vertices.reshape(-1, 2).astype(np.int32)
+    rect = cv2.minAreaRect(vertices)
+    width = rect[1][0]
+    height = rect[1][1]
+    angle = rect[2]
+    # print(f"width < height: {width < height}")
+
+    if width < height:
+        angle = 90 + angle
+
+    # Negative because increasing (0, 0) is top left in images/code, while it is anticlockwise in math
+    return deg2rad(-angle)
+
+
 def is_cross_text(start_loc, length, vertices):
     '''check if the crop image crosses text regions
     Input:
@@ -233,7 +258,8 @@ def crop_img(img, vertices, labels, length):
     remain_w = img.width - length
     flag = True
     cnt = 0
-    while flag and cnt < 1000:
+    # while flag and cnt < 1000:
+    while flag and cnt < 50:
         cnt += 1
         start_w = int(np.random.rand() * remain_w)
         start_h = int(np.random.rand() * remain_h)
@@ -364,7 +390,8 @@ def get_score_geo(img, vertices, labels, scale, length):
         temp_mask = np.zeros(score_map.shape[:-1], np.float32)
         cv2.fillPoly(temp_mask, [poly], 1)
 
-        theta = find_min_rect_angle(vertice)
+        # theta = find_min_rect_angle(vertice)
+        theta = find_min_rect_angle2(vertice)
         rotate_mat = get_rotate_mat(theta)
 
         rotated_vertices = rotate_vertices(vertice, theta)
