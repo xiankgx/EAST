@@ -157,20 +157,19 @@ def train(train_img_path, train_gt_path, pths_path, batch_size, lr, num_workers,
 
 
 if __name__ == '__main__':
+    #train_img_path = os.path.abspath(
+    #    '/mnt/9C5E1A4D5E1A2116/datasets/SynthText/converted/train_img')
+    #train_gt_path = os.path.abspath(
+    #    '/mnt/9C5E1A4D5E1A2116/datasets/SynthText/converted/train_gt')
+    pths_path = './pths-efficientnetb3_backbone/'
     train_img_path = os.path.abspath(
-        '/mnt/9C5E1A4D5E1A2116/datasets/SynthText/converted/train_img')
+        '/mnt/9C5E1A4D5E1A2116/datasets/ICDAR_2015/train_img')
     train_gt_path = os.path.abspath(
-        '/mnt/9C5E1A4D5E1A2116/datasets/SynthText/converted/train_gt')
-    pths_path = './pths4/'
-    # train_img_path = os.path.abspath(
-    #     '/mnt/9C5E1A4D5E1A2116/datasets/ICDAR_2015/train_img')
-    # train_gt_path = os.path.abspath(
-    #     '/mnt/9C5E1A4D5E1A2116/datasets/ICDAR_2015/train_gt')
-    # pths_path = './ICDAR_2015__cv2minarearect/'
-    batch_size = 24
-    lr = 3e-4
+        '/mnt/9C5E1A4D5E1A2116/datasets/ICDAR_2015/train_gt')
+    batch_size = 16
+    lr = 1e-3
     num_workers = 16
-    epoch_iter = 5
+    epoch_iter = 1000
 
     train(train_img_path, train_gt_path,
           pths_path,

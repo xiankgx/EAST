@@ -4,6 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
+from torchvision import transforms
+
+from efficientnet import EfficientNet
 
 cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256,
        'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
@@ -42,8 +45,9 @@ class VGG(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(
-                    m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight,
+                                        mode='fan_out',
+                                        nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -61,13 +65,14 @@ class VGG(nn.Module):
         return x
 
 
-class extractor(nn.Module):
+class VGGFeatureExtractor(nn.Module):
     def __init__(self, pretrained):
-        super(extractor, self).__init__()
+        super(VGGFeatureExtractor, self).__init__()
         vgg16_bn = VGG(make_layers(cfg, batch_norm=True))
         if pretrained:
-            vgg16_bn.load_state_dict(torch.load(
-                './pths/vgg16_bn-6c64b313.pth'))
+            vgg16_bn.load_state_dict(
+                torch.load('./pths/vgg16_bn-6c64b313.pth')
+            )
         self.features = vgg16_bn.features
 
     def forward(self, x):
@@ -79,9 +84,23 @@ class extractor(nn.Module):
         return out[1:]
 
 
-class merge(nn.Module):
+class EfficientNetFeatureExtractor(nn.Module):
+    def __init__(self, pretrained, model_name="efficientnet-b3"):
+        super(EfficientNetFeatureExtractor, self).__init__()
+        if pretrained:
+            model = EfficientNet.from_pretrained(model_name)
+        else:
+            model = EfficientNet.from_name(model_name)
+        self.features = model
+
+    def forward(self, x):
+        features = self.features(x)
+        return features[-4:]
+
+
+class FeatureMerger(nn.Module):
     def __init__(self):
-        super(merge, self).__init__()
+        super(FeatureMerger, self).__init__()
 
         self.conv1 = nn.Conv2d(1024, 128, 1)
         self.bn1 = nn.BatchNorm2d(128)
@@ -110,8 +129,9 @@ class merge(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(
-                    m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight,
+                                        mode='fan_out',
+                                        nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -144,27 +164,121 @@ class merge(nn.Module):
         return y
 
 
-class output(nn.Module):
-    def __init__(self, scope=512):
-        super(output, self).__init__()
-        self.conv1 = nn.Conv2d(32, 1, 1)
-        self.sigmoid1 = nn.Sigmoid()
-        self.conv2 = nn.Conv2d(32, 4, 1)
-        self.sigmoid2 = nn.Sigmoid()
-        self.conv3 = nn.Conv2d(32, 1, 1)
-        self.sigmoid3 = nn.Sigmoid()
-        self.scope = 512
+class ConvBNReLU(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+        super(ConvBNReLU, self).__init__()
+
+        self.conv = nn.Conv2d(in_channels, out_channels,
+                              kernel_size, padding=padding)
+        self.bn = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = F.relu(x)
+        return x
+
+
+class EfficientNetFeatureMerger(nn.Module):
+    def __init__(self,
+                 feature_dims=[
+                     32, 48, 136, 1536
+                 ],
+                 merged_channels=[
+                     128, 64, 32
+                 ]):
+        super(EfficientNetFeatureMerger, self).__init__()
+
+        self.conv1 = nn.Conv2d(
+            feature_dims[-1] + feature_dims[-2], merged_channels[0], 1)
+        self.bn1 = nn.BatchNorm2d(merged_channels[0])
+        self.relu1 = nn.ReLU()
+        self.conv2 = nn.Conv2d(
+            merged_channels[0], merged_channels[0], 3, padding=1)
+        self.bn2 = nn.BatchNorm2d(merged_channels[0])
+        self.relu2 = nn.ReLU()
+
+        self.conv3 = nn.Conv2d(
+            merged_channels[0] + feature_dims[-3], merged_channels[1], 1)
+        self.bn3 = nn.BatchNorm2d(merged_channels[1])
+        self.relu3 = nn.ReLU()
+        self.conv4 = nn.Conv2d(
+            merged_channels[1], merged_channels[1], 3, padding=1)
+        self.bn4 = nn.BatchNorm2d(merged_channels[1])
+        self.relu4 = nn.ReLU()
+
+        self.conv5 = nn.Conv2d(
+            merged_channels[1] + feature_dims[-4], merged_channels[2], 1)
+        self.bn5 = nn.BatchNorm2d(merged_channels[2])
+        self.relu5 = nn.ReLU()
+        self.conv6 = nn.Conv2d(
+            merged_channels[2], merged_channels[2], 3, padding=1)
+        self.bn6 = nn.BatchNorm2d(merged_channels[2])
+        self.relu6 = nn.ReLU()
+
+        self.conv7 = nn.Conv2d(
+            merged_channels[2], merged_channels[2], 3, padding=1)
+        self.bn7 = nn.BatchNorm2d(merged_channels[2])
+        self.relu7 = nn.ReLU()
+
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(
-                    m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight,
+                                        mode='fan_out',
+                                        nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        y = F.interpolate(x[3], scale_factor=2,
+                          mode='bilinear',
+                          align_corners=True)
+        y = torch.cat((y, x[2]), 1)
+        y = self.relu1(self.bn1(self.conv1(y)))
+        y = self.relu2(self.bn2(self.conv2(y)))
+
+        y = F.interpolate(y, scale_factor=2,
+                          mode='bilinear',
+                          align_corners=True)
+        y = torch.cat((y, x[1]), 1)
+        y = self.relu3(self.bn3(self.conv3(y)))
+        y = self.relu4(self.bn4(self.conv4(y)))
+
+        y = F.interpolate(y, scale_factor=2,
+                          mode='bilinear',
+                          align_corners=True)
+        y = torch.cat((y, x[0]), 1)
+        y = self.relu5(self.bn5(self.conv5(y)))
+        y = self.relu6(self.bn6(self.conv6(y)))
+
+        y = self.relu7(self.bn7(self.conv7(y)))
+        return y
+
+
+class Output(nn.Module):
+    def __init__(self, scope=512):
+        super(Output, self).__init__()
+
+        self.conv1 = nn.Conv2d(32, 1, 1)
+        self.conv2 = nn.Conv2d(32, 4, 1)
+        self.conv3 = nn.Conv2d(32, 1, 1)
+        self.scope = 512
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight,
+                                        mode='fan_out',
+                                        nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        score = self.sigmoid1(self.conv1(x))
-        loc = self.sigmoid2(self.conv2(x)) * self.scope
-        angle = (self.sigmoid3(self.conv3(x)) - 0.5) * math.pi
+        score = torch.sigmoid(self.conv1(x))
+        loc = torch.sigmoid(self.conv2(x)) * self.scope
+        angle = (torch.sigmoid(self.conv3(x)) - 0.5) * math.pi
         geo = torch.cat((loc, angle), 1)
         return score, geo
 
@@ -172,12 +286,28 @@ class output(nn.Module):
 class EAST(nn.Module):
     def __init__(self, pretrained=True):
         super(EAST, self).__init__()
-        self.extractor = extractor(pretrained)
-        self.merge = merge()
-        self.output = output()
+        # self.extractor = VGGFeatureExtractor(pretrained)
+        self.extractor = EfficientNetFeatureExtractor(pretrained,
+                                                      model_name="efficientnet-b3")
+
+        # Compute extracted feature map channel dimensions
+        dummy_out = self.extractor(torch.randn(1, 3, 256, 256))
+        feature_dims = [int(t.size(1)) for t in dummy_out]
+
+        self.merge = EfficientNetFeatureMerger(feature_dims=feature_dims)
+        self.output = Output()
 
     def forward(self, x):
-        return self.output(self.merge(self.extractor(x)))
+        x = self.extractor(x)
+
+        # for i, t in enumerate(x):
+        #     print(f"extractor output #{i} shape: {t.shape}")
+
+        x = self.merge(x)
+        # print(f"merge output shape: {x.shape}")
+
+        x = self.output(x)
+        return x
 
 
 if __name__ == '__main__':

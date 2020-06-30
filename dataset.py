@@ -1,6 +1,7 @@
 import math
 import os
 
+import albumentations as A
 import cv2
 import numpy as np
 import torch
@@ -8,7 +9,6 @@ import torchvision.transforms as transforms
 from PIL import Image
 from shapely.geometry import Polygon
 from torch.utils import data
-import albumentations as A
 
 
 def cal_distance(x1, y1, x2, y2):
@@ -516,7 +516,7 @@ class custom_dataset(data.Dataset):
         if np.random.rand() < 0.5:
             img, vertices = adjust_width(img, vertices, ratio=0.2)
         if np.random.rand() < 0.5:
-            img, vertices = rotate_img(img, vertices, angle_range=90)
+            img, vertices = rotate_img(img, vertices, angle_range=30)
         if np.random.rand() < 0.5:
             img, vertices = crop_img(img, vertices, labels, self.length)
         else:
@@ -543,7 +543,12 @@ class custom_dataset(data.Dataset):
             # transforms.ColorJitter(0.5, 0.5, 0.5, 0.1),
             # transforms.RandomGrayscale(0.1),
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+
+            # XXX Move this to model
+            # transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+            # EfficientNet
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
         ])
 
         score_map, geo_map, ignored_map = get_score_geo(
