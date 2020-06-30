@@ -8,6 +8,7 @@ import torchvision.transforms as transforms
 from PIL import Image
 from shapely.geometry import Polygon
 from torch.utils import data
+import albumentations as A
 
 
 def cal_distance(x1, y1, x2, y2):
@@ -237,7 +238,6 @@ def crop_img(img, vertices, labels, length):
             region      : cropped image region
             new_vertices: new vertices in cropped region
     '''
-
     h, w = img.height, img.width
     # confirm the shortest side of image >= length
     if h >= w and w < length:
@@ -256,13 +256,15 @@ def crop_img(img, vertices, labels, length):
     # find random position
     remain_h = img.height - length
     remain_w = img.width - length
+
+    # Try to crop without cutting text
     flag = True
     cnt = 0
-    # while flag and cnt < 1000:
-    while flag and cnt < 50:
+    while flag and cnt < 100:
         cnt += 1
         start_w = int(np.random.rand() * remain_w)
         start_h = int(np.random.rand() * remain_h)
+
         try:
             flag = is_cross_text([start_w, start_h], length,
                                  new_vertices[labels == 1, :])
@@ -272,6 +274,11 @@ def crop_img(img, vertices, labels, length):
             print(f"new_vertices shape: {new_vertices.shape}")
             print(f"labels shape: {labels.shape}")
             pass
+    # if flag:
+    #     print(
+    #         f"Warning, can't find cropping region without cutting text after {cnt} retries! This is not an error.")
+    # start_w = int(np.random.rand() * remain_w)
+    # start_h = int(np.random.rand() * remain_h)
 
     box = (start_w, start_h, start_w + length, start_h + length)
     region = img.crop(box)
@@ -280,6 +287,30 @@ def crop_img(img, vertices, labels, length):
 
     new_vertices[:, [0, 2, 4, 6]] -= start_w
     new_vertices[:, [1, 3, 5, 7]] -= start_h
+
+    # Only keep boxes that have at least two points in the cropped patch
+    min_points_inside_region = 1
+    new_verticles_filtered = []
+    for v in new_vertices:
+        inside_count = 0
+
+        for _v in v.reshape(-1, 2):
+            x = _v[0]
+            y = _v[1]
+
+            if (x >= 0 and x <= length) and (y >= 0 and y <= length):
+                inside_count += 1
+
+            if inside_count >= min_points_inside_region:
+                break
+
+        # If at least two points of box is within image, consider ok
+        if inside_count >= min_points_inside_region:
+            new_verticles_filtered.append(v)
+        # else:
+        #     print("Dropped box")
+    new_vertices = np.array(new_verticles_filtered)
+
     return region, new_vertices
 
 
@@ -331,7 +362,30 @@ def adjust_height(img, vertices, ratio=0.2):
     return img, new_vertices
 
 
-def rotate_img(img, vertices, angle_range=10):
+def adjust_width(img, vertices, ratio=0.2):
+    '''adjust width of image to aug data
+    Input:
+            img         : PIL Image
+            vertices    : vertices of text regions <numpy.ndarray, (n,8)>
+            ratio       : width changes in [0.8, 1.2]
+    Output:
+            img         : adjusted PIL Image
+            new_vertices: adjusted vertices
+    '''
+
+    ratio_w = 1 + ratio * (np.random.rand() * 2 - 1)
+    old_w = img.width
+    new_w = int(np.around(old_w * ratio_w))
+    img = img.resize((new_w, img.height), Image.BILINEAR)
+
+    new_vertices = vertices.copy()
+    if vertices.size > 0:
+        new_vertices[:, [0, 2, 4, 6]] = vertices[:,
+                                                 [0, 2, 4, 6]] * (new_w / old_w)
+    return img, new_vertices
+
+
+def rotate_img(img, vertices, angle_range=30):
     '''rotate image [-10, 10] degree to aug data
     Input:
             img         : PIL Image
@@ -390,8 +444,8 @@ def get_score_geo(img, vertices, labels, scale, length):
         temp_mask = np.zeros(score_map.shape[:-1], np.float32)
         cv2.fillPoly(temp_mask, [poly], 1)
 
-        # theta = find_min_rect_angle(vertice)
-        theta = find_min_rect_angle2(vertice)
+        theta = find_min_rect_angle(vertice)
+        # theta = find_min_rect_angle2(vertice)
         rotate_mat = get_rotate_mat(theta)
 
         rotated_vertices = rotate_vertices(vertice, theta)
@@ -457,11 +511,37 @@ class custom_dataset(data.Dataset):
         vertices, labels = extract_vertices(lines)
 
         img = Image.open(self.img_files[index])
-        img, vertices = adjust_height(img, vertices)
-        img, vertices = rotate_img(img, vertices)
-        img, vertices = crop_img(img, vertices, labels, self.length)
+        if np.random.rand() < 0.5:
+            img, vertices = adjust_height(img, vertices, ratio=0.2)
+        if np.random.rand() < 0.5:
+            img, vertices = adjust_width(img, vertices, ratio=0.2)
+        if np.random.rand() < 0.5:
+            img, vertices = rotate_img(img, vertices, angle_range=90)
+        if np.random.rand() < 0.5:
+            img, vertices = crop_img(img, vertices, labels, self.length)
+        else:
+            # Squash resize
+            old_img_w, old_img_h = img.width, img.height
+            img = img.resize((self.length, self.length), Image.BILINEAR)
+            vertices[:, [0, 2, 4, 6]] = vertices[:,
+                                                 [0, 2, 4, 6]] * (self.length / old_img_w)
+            vertices[:, [1, 3, 5, 7]] = vertices[:,
+                                                 [1, 3, 5, 7]] * (self.length / old_img_h)
+
+        albu_transforms = A.Compose([
+            A.GaussNoise(p=0.5),
+            A.Blur(blur_limit=3, p=0.2),
+            A.RandomBrightnessContrast(),
+            A.HueSaturationValue(),
+            A.RandomGamma(),
+            A.ToGray(p=0.1),
+        ])
+
         transform = transforms.Compose([
-            transforms.ColorJitter(0.5, 0.5, 0.5, 0.25),
+            transforms.Lambda(lambda img: np.array(img)),
+            transforms.Lambda(lambda img: albu_transforms(image=img)["image"]),
+            # transforms.ColorJitter(0.5, 0.5, 0.5, 0.1),
+            # transforms.RandomGrayscale(0.1),
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
         ])
