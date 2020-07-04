@@ -492,7 +492,21 @@ def extract_vertices(lines):
 
 
 class custom_dataset(data.Dataset):
-    def __init__(self, img_path, gt_path, scale=0.25, length=512):
+    def __init__(self,
+                 img_path,
+                 gt_path,
+                 #  scale=0.25,
+                 scale=0.5,  # XXX
+                 length=512):
+        """custom dataset
+
+        Args:
+            img_path (str) - Root dir containing images.
+            gt_path (str) - Root dir containing annotations file.
+            scale (float) - feature map output size / image label size
+            lenght (int) - image label size
+
+        """
         super(custom_dataset, self).__init__()
         self.img_files = [os.path.join(img_path, img_file)
                           for img_file in sorted(os.listdir(img_path))]

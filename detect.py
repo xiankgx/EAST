@@ -179,11 +179,8 @@ def plot_boxes(img, boxes):
 
         draw.polygon([
             (box[0], box[1]),
-
             (box[2], box[3]),
-
             (box[4], box[5]),
-
             (box[6], box[7])
         ],
             outline=(0, 255, 0)  # GX: green color outline
