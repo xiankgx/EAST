@@ -2,6 +2,7 @@ import argparse
 import glob
 import os
 import time
+from shutil import copyfile, copytree, rmtree
 
 import numpy as np
 import torch
@@ -13,8 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from dataset import custom_dataset
 from loss import Loss
-from model import EAST
-from shutil import copyfile, copytree, rmtree
+from models import EAST
 
 try:
     from apex import amp
@@ -28,16 +28,16 @@ except ImportError:
 class Trainer(object):
     def __init__(self, config_path):
         self.config_path = config_path
-        self.parse_config()
+        self._parse_config()
 
         os.makedirs(self.config["training"]["prefix"], exist_ok=True)
-        self.save_code()
+        self._save_code()
 
-    def parse_config(self):
+    def _parse_config(self):
         with open(self.config_path, "r") as f:
             self.config = yaml.load(f, Loader=yaml.Loader)
 
-    def save_code(self):
+    def _save_code(self):
         """Copy vital source code files and folders to a directory."""
 
         outdir = os.path.join(self.config["training"]["prefix"], "code")
@@ -48,8 +48,9 @@ class Trainer(object):
             "detect.py",
             "eval.py",
             "loss.py",
-            "model.py",
-            "train.py"
+            "models",
+            "train.py",
+            "configs",
         ]
         for p in backup_list:
             dst_path = os.path.join(outdir, p)
@@ -89,8 +90,12 @@ class Trainer(object):
                 latest_checkpoint = checkpoints[0]
                 print(
                     f"Restoring model from latest checkpoint: {latest_checkpoint}")
-                model.load_state_dict(torch.load(latest_checkpoint,
-                                                 map_location=torch.device("cpu")))
+                try:
+                    model.load_state_dict(torch.load(latest_checkpoint,
+                                                     map_location=torch.device("cpu")))
+                except:
+                    print(
+                        f"Failed to restore from checkpoint: {latest_checkpoint}")
             else:
                 print(
                     f"No existing checkpoint found in {checkpoints_dir}, training from scratch!")
@@ -128,6 +133,8 @@ class Trainer(object):
         trainset = custom_dataset(img_path=self.config["training"]["img_root_dir"]["train"],
                                   gt_path=self.config["training"]["annotations_root_dir"]["train"],
                                   scale=scale,
+                                  normalization_params=model.module.get_preprocessing_params() if hasattr(
+                                      model, "module") else model.get_preprocessing_params(),
                                   length=self.config["model"]["scope"])
         train_loader = data.DataLoader(trainset,
                                        batch_size=self.config["training"]["batch_size"],
@@ -234,27 +241,5 @@ def main(args):
 
 
 if __name__ == '__main__':
-    # train_img_path = os.path.abspath(
-    #    '/mnt/9C5E1A4D5E1A2116/datasets/SynthText/converted/train_img')
-    # train_gt_path = os.path.abspath(
-    #    '/mnt/9C5E1A4D5E1A2116/datasets/SynthText/converted/train_gt')
-    # pths_path = './pths-efficientnetb3_backbone-4layerfeatures/'
-    # train_img_path = os.path.abspath(
-    #     '/mnt/9C5E1A4D5E1A2116/datasets/ICDAR_2015/train_img')
-    # train_gt_path = os.path.abspath(
-    #     '/mnt/9C5E1A4D5E1A2116/datasets/ICDAR_2015/train_gt')
-    # batch_size = 16
-    # lr = 1e-3
-    # num_workers = 16
-    # epoch_iter = 1000
-
-    # train(train_img_path, train_gt_path,
-    #       pths_path,
-    #       batch_size,
-    #       lr,
-    #       num_workers,
-    #       epoch_iter,
-    #       resume=True)
-
     args = parse_args()
     main(args)

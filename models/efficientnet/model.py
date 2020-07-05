@@ -322,7 +322,7 @@ class EfficientNet(nn.Module):
         Returns:
             Output of this model after processing.
         """
-        bs = inputs.size(0)
+        # bs = inputs.size(0)
 
         # # Convolution layers
         # x = self.extract_features(inputs)
@@ -334,7 +334,7 @@ class EfficientNet(nn.Module):
         # x = self._fc(x)
 
         endpoints = self.extract_endpoints(inputs)
-        x = [endpoints[f'reduction_{i+1}'] for i in range(5)]
+        x = [endpoints[f'reduction_{i+1}'] for i in range(1, 5)]
 
         return x
 

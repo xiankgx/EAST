@@ -1,13 +1,17 @@
+import argparse
+import glob
 import os
 
 import lanms
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import yaml
 from PIL import Image, ImageDraw
 from torchvision import transforms
 
 from dataset import get_rotate_mat
-from model import EAST
+from models import EAST
 
 
 def resize_img(img):
@@ -27,14 +31,13 @@ def resize_img(img):
     return img, ratio_h, ratio_w
 
 
-def load_pil(img):
+def load_pil(img, preprocessing_params):
     '''convert PIL Image to torch.Tensor
     '''
 
     t = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5),
-                             std=(0.5, 0.5, 0.5))
+        transforms.Normalize(**preprocessing_params)
     ])
     return t(img).unsqueeze(0)
 
@@ -70,6 +73,7 @@ def restore_polys(valid_pos, valid_geo, score_shape, scale=4):
 
     polys = []
     index = []
+    # print(f"valid_pos: {valid_pos.dtype}")
     valid_pos *= scale
     d = valid_geo[:4, :]  # 4 x N
     angle = valid_geo[4, :]  # N,
@@ -97,7 +101,7 @@ def restore_polys(valid_pos, valid_geo, score_shape, scale=4):
     return np.array(polys), index
 
 
-def get_boxes(score, geo, score_thresh=0.9, nms_thresh=0.2):
+def get_boxes(score, geo, score_thresh=0.9, nms_thresh=0.2, scale=4):
     '''get boxes from feature map
     Input:
             score       : score map from model <numpy.ndarray, (1,row,col)>
@@ -116,7 +120,8 @@ def get_boxes(score, geo, score_thresh=0.9, nms_thresh=0.2):
     xy_text = xy_text[np.argsort(xy_text[:, 0])]
     valid_pos = xy_text[:, ::-1].copy()  # n x 2, [x, y]
     valid_geo = geo[:, xy_text[:, 0], xy_text[:, 1]]  # 5 x n
-    polys_restored, index = restore_polys(valid_pos, valid_geo, score.shape)
+    polys_restored, index = restore_polys(
+        valid_pos, valid_geo, score.shape, scale=scale)
     if polys_restored.size == 0:
         return None
 
@@ -145,12 +150,19 @@ def adjust_ratio(boxes, ratio_w, ratio_h):
     return np.around(boxes)
 
 
-def detect(img, model, device):
+def detect(img, model, device,
+           scale,
+           preprocessing_params,
+           score_thresh=0.9,
+           nms_thresh=0.2):
     '''detect text regions of img using model
     Input:
             img   : PIL Image
             model : detection model
             device: gpu if gpu is available
+            scale : image / feature map
+            score_thresh: threshold to segment score map
+            nms_thresh  : threshold in nms
     Output:
             detected polys
     '''
@@ -158,10 +170,14 @@ def detect(img, model, device):
     img, ratio_h, ratio_w = resize_img(img)
 
     with torch.no_grad():
-        score, geo = model(load_pil(img).to(device))
+        score, geo = model(load_pil(img,
+                                    preprocessing_params).to(device))
 
     boxes = get_boxes(score.squeeze(0).cpu().numpy(),
-                      geo.squeeze(0).cpu().numpy())
+                      geo.squeeze(0).cpu().numpy(),
+                      score_thresh=score_thresh,
+                      nms_thresh=nms_thresh,
+                      scale=scale)
 
     return adjust_ratio(boxes, ratio_w, ratio_h)
 
@@ -175,8 +191,6 @@ def plot_boxes(img, boxes):
 
     draw = ImageDraw.Draw(img)
     for box in boxes:
-        print(f"box: {box}")
-
         draw.polygon([
             (box[0], box[1]),
             (box[2], box[3]),
@@ -213,18 +227,160 @@ def detect_dataset(model, device, test_img_path, submit_path):
             f.writelines(seq)
 
 
+class Predictor(object):
+    def __init__(self, config_path, device=None):
+        self.config_path = config_path
+        self._parse_config()
+
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
+
+        self._load_model()
+        self._get_scope()
+        self._compute_scale()
+        self._get_preprocessing_params()
+
+        print(f"scope: {self.scope}")
+        print(f"scale: {self.scale}")
+
+    def _parse_config(self):
+        with open(self.config_path, "r") as f:
+            self.config = yaml.load(f, Loader=yaml.Loader)
+
+    def _load_model(self, checkpoint_path=None):
+        # Instantiate model from configuration file
+        model = EAST.from_config_file(self.config_path)
+
+        if checkpoint_path is None or os.path.isdir(checkpoint_path):
+            checkpoint_dir = os.path.join(self.config["training"]["prefix"], "checkpoints") \
+                if checkpoint_path is None else checkpoint_path
+            checkpoints = glob.glob(checkpoint_dir + "/*.pth")
+            checkpoints = sorted(checkpoints,
+                                 key=os.path.getmtime,
+                                 reverse=True)
+            if len(checkpoints) > 0:
+                checkpoint_path = checkpoints[0]
+            else:
+                print(f"Warning, no checkpoint found in {checkpoint_dir}")
+        elif not os.path.isfile(checkpoint_path):
+            raise FileNotFoundError(
+                f"Checkpoint path not found: {checkpoint_path}")
+        model.load_state_dict(torch.load(checkpoint_path,
+                                         map_location=torch.device("cpu")))
+
+        # Move model to the right computation device
+        model.to(self.device)
+
+        # Put model in evaluation mode
+        model.eval()
+
+        self.model = model
+
+    def _get_scope(self):
+        """Input image size."""
+        self.scope = self.config["model"]["scope"]
+
+    def _compute_scale(self):
+        """Compute scale."""
+        dummy_out, _ = self.model(torch.rand(1, 3, self.scope, self.scope,
+                                             device=self.device))
+        scale = dummy_out.size(2)/self.scope
+        # XXX This is inverse of what used in training for restoring polygons
+        self.scale = int(1/scale)
+
+    def _get_preprocessing_params(self):
+        self.preprocessing_params = self.model.get_preprocessing_params()
+
+    def predict(self, img_path,
+                save_img=True, out_img_path="./prediction.jpg",
+                return_img=False,
+                score_thresh=0.9,
+                nms_thresh=0.2):
+        img = Image.open(img_path)
+        boxes = detect(img,
+                       model=self.model,
+                       device=self.device,
+                       scale=self.scale,
+                       preprocessing_params=self.preprocessing_params,
+                       score_thresh=score_thresh,
+                       nms_thresh=nms_thresh)
+        if save_img:
+            plot_img = plot_boxes(img, boxes)
+            os.makedirs(os.path.dirname(out_img_path), exist_ok=True)
+            plot_img.save(out_img_path)
+
+        if return_img:
+            return boxes, plot_img
+        else:
+            return boxes
+
+        print("Done!")
+
+    def predict_dir(self, input_dir, output_dir="./predictions/"):
+        """Predict using images in a directory.
+
+        Args:
+            input_dir ([type]): Input directory containing images to be predicted.
+            output_dir ([type]): Output directory to store predicted results.
+        """
+        images = glob.glob(f"{input_dir}/**/*.jpg", recursive=True)
+
+        print(f"Found {len(images)} images in {input_dir}")
+
+        os.makedirs(os.path.join(output_dir, "img"), exist_ok=True)
+        os.makedirs(os.path.join(output_dir, "pred"), exist_ok=True)
+        for p in images:
+            boxes = self.predict(p,
+                                 save_img=True,
+                                 out_img_path=os.path.join(output_dir, "img", os.path.basename(p)))
+            if boxes is not None:
+                with open(os.path.join(output_dir, "pred", os.path.splitext(os.path.basename(p))[0] + ".txt"), "w") as f:
+                    for b in boxes:
+                        f.write(
+                            f"{','.join([str(int(v)) for v in b.tolist()])}\n")
+
+        print("Done!")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser("EAST trainer")
+    parser.add_argument("--config_path",
+                        type=str,
+                        default="configs/config.yaml",
+                        help="Training config file path.")
+    parser.add_argument("--input",
+                        type=str,
+                        help="Input image to be predicted.")
+    parser.add_argument("--input_dir",
+                        type=str,
+                        help="Input directory containing images to be predicted.")
+    parser.add_argument("--output_dir",
+                        type=str,
+                        default="./predictions/",
+                        help="Output directory to store predicted results.")
+    args = parser.parse_args()
+    return args
+
+
+def main(args):
+    predictor = Predictor(config_path=args.config_path)
+    if args.input_dir and os.path.isdir(args.input_dir):
+        predictor.predict_dir(args.input_dir, output_dir=args.output_dir)
+    elif args.input and os.path.isfile(args.input):
+        boxes = predictor.predict(args.input,
+                                  save_img=True,
+                                  out_img_path=os.path.join(args.output_dir, os.path.basename(args.input)))
+        if boxes is not None:
+            with open(os.path.join(args.output_dir, os.path.splitext(os.path.basename(args.input))[0] + ".txt"), "w") as f:
+                for b in boxes:
+                    f.write(f"{','.join([str(int(v)) for v in b.tolist()])}\n")
+    elif args.input_dir:
+        raise FileNotFoundError(f"Input directory not found: {args.input_dir}")
+    elif args.input:
+        raise FileNotFoundError(f"Input file not found: {args.input}")
+
+
 if __name__ == '__main__':
-    img_path = './ICDAR_2015/test_img/img_2.jpg'
-    model_path = './pths/east_vgg16.pth'
-    res_img = './res.bmp'
-
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model = EAST().to(device)
-    model.load_state_dict(torch.load(model_path))
-    model.eval()
-
-    img = Image.open(img_path)
-
-    boxes = detect(img, model, device)
-    plot_img = plot_boxes(img, boxes)
-    plot_img.save(res_img)
+    args = parse_args()
+    main(args)

@@ -1,82 +1,99 @@
 import math
+import os
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.model_zoo as model_zoo
-from torchvision import transforms
 import yaml
-import os
+
+from .efficientnet import EfficientNet
+from .pvanet import PVANetFeat
+from .vgg import vgg16_bn
+from .xception import xception_feature_extractor, pretrained_settings as xception_pretrained_settings
 
 
-from efficientnet import EfficientNet
+preprocessing_params = {
+    # VGG
+    "vgg16_bn": {
+        "mean": (0.5, 0.5, 0.5),
+        "std": (0.5, 0.5, 0.5)
+    },
 
-cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256,
-       'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
+    # EfficientNet
+    "efficientnet-b0": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+    "efficientnet-b1": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+    "efficientnet-b2": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+    "efficientnet-b3": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+    "efficientnet-b4": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+    "efficientnet-b5": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+    "efficientnet-b6": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+    "efficientnet-b7": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+
+    "pvanet": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+
+    "xception": {
+        "mean": xception_pretrained_settings["xception"]["imagenet"]["mean"],
+        "std": xception_pretrained_settings["xception"]["imagenet"]["std"]
+    }
+}
 
 
-def make_layers(cfg, batch_norm=False):
-    layers = []
-    in_channels = 3
-    for v in cfg:
-        if v == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            if batch_norm:
-                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-            else:
-                layers += [conv2d, nn.ReLU(inplace=True)]
-            in_channels = v
-    return nn.Sequential(*layers)
+###############################################################################
+# Common
+###############################################################################
 
 
-class VGG(nn.Module):
-    def __init__(self, features):
-        super(VGG, self).__init__()
-        self.features = features
-        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
-        self.classifier = nn.Sequential(
-            nn.Linear(512 * 7 * 7, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 1000),
-        )
+class ConvBNReLU(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+        super(ConvBNReLU, self).__init__()
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight,
-                                        mode='fan_out',
-                                        nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
+        self.conv = nn.Conv2d(in_channels, out_channels,
+                              kernel_size, padding=padding)
+        self.bn = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
-        x = self.features(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.classifier(x)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = F.relu(x)
         return x
 
+###############################################################################
+# VGG backbone
+###############################################################################
 
-class VGGFeatureExtractor(nn.Module):
+
+class VGG16BNFeatureExtractor(nn.Module):
     def __init__(self, pretrained):
-        super(VGGFeatureExtractor, self).__init__()
-        vgg16_bn = VGG(make_layers(cfg, batch_norm=True))
-        if pretrained:
-            vgg16_bn.load_state_dict(
-                torch.load('./pths/vgg16_bn-6c64b313.pth')
-            )
-        self.features = vgg16_bn.features
+        super(VGG16BNFeatureExtractor, self).__init__()
+        backbone = vgg16_bn(pretrained)
+        self.features = backbone.features
 
     def forward(self, x):
         out = []
@@ -85,21 +102,6 @@ class VGGFeatureExtractor(nn.Module):
             if isinstance(m, nn.MaxPool2d):
                 out.append(x)
         return out[1:]
-
-
-class EfficientNetFeatureExtractor(nn.Module):
-    def __init__(self, pretrained, model_name="efficientnet-b3"):
-        super(EfficientNetFeatureExtractor, self).__init__()
-        if pretrained:
-            model = EfficientNet.from_pretrained(model_name)
-        else:
-            model = EfficientNet.from_name(model_name)
-        self.features = model
-
-    def forward(self, x):
-        features = self.features(x)
-        # return features[-4:]
-        return features
 
 
 class VGGFeatureMerger(nn.Module):
@@ -167,29 +169,35 @@ class VGGFeatureMerger(nn.Module):
         y = self.relu7(self.bn7(self.conv7(y)))
         return y
 
+###############################################################################
+# EfficientNet backbone
+###############################################################################
 
-class ConvBNReLU(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
-        super(ConvBNReLU, self).__init__()
 
-        self.conv = nn.Conv2d(in_channels, out_channels,
-                              kernel_size, padding=padding)
-        self.bn = nn.BatchNorm2d(out_channels)
+class EfficientNetFeatureExtractor(nn.Module):
+    def __init__(self, pretrained, model_name="efficientnet-b3"):
+        super(EfficientNetFeatureExtractor, self).__init__()
+        if pretrained:
+            model = EfficientNet.from_pretrained(model_name)
+        else:
+            model = EfficientNet.from_name(model_name)
+        self.features = model
 
     def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = F.relu(x)
-        return x
+        features = self.features(x)
+        # return features[-4:]
+        return features
+
+###############################################################################
+# EAST model and sub-modules
+###############################################################################
 
 
 class FeatureMerger(nn.Module):
     def __init__(self,
-                 input_feature_dims=[
-                     16, 32, 48, 136, 1536
-                 ],
+                 input_feature_dims,
                  inter_out_channels=[
-                     128, 64, 32, 32
+                     128, 64, 32
                  ],
                  out_channels=32):
         """Feature merger module.  It merges the feature maps of different layers from the CNN encoder
@@ -218,10 +226,10 @@ class FeatureMerger(nn.Module):
         for i, (in_channels, out_channels) in enumerate(zip(input_feature_dims[:-1][::-1], inter_out_channels)):
             # print(f"i={i}a, in: {prev_channels + in_channels}, out: {out_channels}")
             # print(f"i={i}b, in: {out_channels}, out: {out_channels}")
-            setattr(self, f"block_{i+1}_conv_bn_relu_1", ConvBNReLU(
-                prev_channels + in_channels, out_channels, 1, padding=0))
-            setattr(self, f"block_{i+1}_conv_bn_relu_2", ConvBNReLU(
-                out_channels, out_channels, 3, padding=1))
+            setattr(self, f"block_{i+1}_conv_bn_relu_1",
+                    ConvBNReLU(prev_channels + in_channels, out_channels, 1, padding=0))
+            setattr(self, f"block_{i+1}_conv_bn_relu_2",
+                    ConvBNReLU(out_channels, out_channels, 3, padding=1))
             prev_channels = out_channels
 
         self.out_conv_bn_relu = ConvBNReLU(prev_channels, out_channels, 3, 1)
@@ -303,9 +311,21 @@ class EAST(nn.Module):
         self.merger_inter_out_channels = merger_inter_out_channels
         self.merged_channels = merged_channels
 
-        # self.extractor = VGGFeatureExtractor(pretrained)
-        self.extractor = EfficientNetFeatureExtractor(pretrained,
-                                                      model_name=backbone)
+        if backbone == "vgg16_bn":
+            self.extractor = VGG16BNFeatureExtractor(pretrained)
+        elif backbone in [f"efficientnet-b{i}" for i in range(8)]:
+            self.extractor = EfficientNetFeatureExtractor(pretrained,
+                                                          model_name=backbone)
+        elif backbone == "pvanet":
+            self.extractor = PVANetFeat()
+
+            if pretrained:
+                print(
+                    "Warning, no pretrained weights for PVANet backbone! Note: This is not an error.")
+        elif backbone == "xception":
+            self.extractor = xception_feature_extractor(pretrained)
+        else:
+            raise ValueError(f"Unknown backbone: {backbone}")
 
         # Compute extracted feature map channel dimensions
         dummy_out = self.extractor(torch.randn(1, 3, 256, 256))
@@ -331,7 +351,7 @@ class EAST(nn.Module):
         return x
 
     @staticmethod
-    def from_config_file(path="configs/config.yaml"):
+    def from_config_file(path="../configs/config.yaml"):
         """Instantiate model from config file.
 
         Args:
@@ -353,6 +373,11 @@ class EAST(nn.Module):
         # model = EAST()
         return model
 
+    def get_preprocessing_params(self):
+        return preprocessing_params[self.backbone]
+
+
+###############################################################################
 
 if __name__ == '__main__':
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -362,5 +387,8 @@ if __name__ == '__main__':
     x = torch.randn(1, 3, 512, 512).to(device)
     score, geo = model(x)
 
+    scale = score.size(2)/512
+
     print(f"score shape   : {score.shape}")
     print(f"geometry shape: {geo.shape}")
+    print(f"scale         : {scale}")

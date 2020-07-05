@@ -1,6 +1,6 @@
 model:
   pretrained: true
-  backbone: "xception"
+  backbone: "vgg16_bn"
   scope: 512
   merger_inter_out_channels: [128, 64, 32]
   merged_channels: 32

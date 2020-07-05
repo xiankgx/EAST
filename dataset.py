@@ -496,7 +496,8 @@ class custom_dataset(data.Dataset):
                  img_path,
                  gt_path,
                  #  scale=0.25,
-                 scale=0.5,  # XXX
+                 scale,  # XXX
+                 normalization_params,
                  length=512):
         """custom dataset
 
@@ -513,6 +514,7 @@ class custom_dataset(data.Dataset):
         self.gt_files = [os.path.join(gt_path, gt_file)
                          for gt_file in sorted(os.listdir(gt_path))]
         self.scale = scale
+        self.normalization_params = normalization_params
         self.length = length
 
     def __len__(self):
@@ -561,8 +563,8 @@ class custom_dataset(data.Dataset):
             # XXX Move this to model
             # transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
             # EfficientNet
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
+            transforms.Normalize(mean=self.normalization_params["mean"],
+                                 std=self.normalization_params["std"])
         ])
 
         score_map, geo_map, ignored_map = get_score_geo(
