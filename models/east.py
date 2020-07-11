@@ -243,14 +243,14 @@ class FeatureMerger(nn.Module):
         self.out_channels = out_channels
 
         prev_channels = input_feature_dims[-1]
-        for i, (in_channels, out_channels) in enumerate(zip(input_feature_dims[:-1][::-1], inter_out_channels)):
-            # print(f"i={i}a, in: {prev_channels + in_channels}, out: {out_channels}")
-            # print(f"i={i}b, in: {out_channels}, out: {out_channels}")
+        for i, (cin, cout) in enumerate(zip(input_feature_dims[:-1][::-1], inter_out_channels)):
+            # print(f"i={i}a, in: {prev_channels + cin}, out: {cout}")
+            # print(f"i={i}b, in: {cout}, out: {cout}")
             setattr(self, f"block_{i+1}_conv_bn_relu_1",
-                    ConvBNReLU(prev_channels + in_channels, out_channels, 1, padding=0))
+                    ConvBNReLU(prev_channels + cin, cout, 1, padding=0))
             setattr(self, f"block_{i+1}_conv_bn_relu_2",
-                    ConvBNReLU(out_channels, out_channels, 3, padding=1))
-            prev_channels = out_channels
+                    ConvBNReLU(cout, cout, 3, padding=1))
+            prev_channels = cout
 
         self.out_conv_bn_relu = ConvBNReLU(prev_channels, out_channels, 3, 1)
 
@@ -269,6 +269,7 @@ class FeatureMerger(nn.Module):
             y = torch.cat((y, x[len(self.input_feature_dims) - 2 - i]), 1)
             y = layer1(y)
             y = layer2(y)
+            # print(f"y shape: {y.shape}")
 
         y = self.out_conv_bn_relu(y)
         return y
