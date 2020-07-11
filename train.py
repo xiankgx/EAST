@@ -16,17 +16,17 @@ from dataset import custom_dataset
 from loss import Loss
 from models import EAST
 
-try:
-    from apex import amp
-    GOT_AMP = True
-    print("Apex AMP is available!")
-except ImportError:
-    GOT_AMP = False
-    print("Apex AMP is NOT available!")
-
 
 class Trainer(object):
+    """An object that can be used for training a EAST model."""
+
     def __init__(self, config_path):
+        """Create a trainer object.
+
+        Args:
+            config_path (str): configuration file path
+        """
+
         self.config_path = config_path
         self._parse_config()
 
@@ -54,6 +54,7 @@ class Trainer(object):
         ]
         for p in backup_list:
             dst_path = os.path.join(outdir, p)
+            # Remove existing file or folders
             if os.path.exists(dst_path):
                 if os.path.isfile(dst_path):
                     os.remove(dst_path)
@@ -66,6 +67,9 @@ class Trainer(object):
                 copytree(p, dst_path)
 
     def train(self):
+        """Train a model using configurations from the configuration file."""
+
+        # Writer for TensorBoard logging
         writer = SummaryWriter(os.path.join(self.config["training"]["prefix"],
                                             "logs"))
 
@@ -73,11 +77,14 @@ class Trainer(object):
             self.config["training"]["img_root_dir"]["train"]))
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # The loss function for training the model
         criterion = Loss()
 
         # Instantiate model
         model = EAST(**self.config["model"])
 
+        # Restore model weights from checkpoint
         checkpoints_dir = os.path.join(self.config["training"]["prefix"],
                                        "checkpoints")
         if self.config["training"]["resume"]:
@@ -90,6 +97,7 @@ class Trainer(object):
                 latest_checkpoint = checkpoints[0]
                 print(
                     f"Restoring model from latest checkpoint: {latest_checkpoint}")
+
                 try:
                     model.load_state_dict(torch.load(latest_checkpoint,
                                                      map_location=torch.device("cpu")))
@@ -102,6 +110,7 @@ class Trainer(object):
         else:
             print("Training from scratch!")
 
+        # Move model to the right device
         model.to(device)
 
         # Instantiate optimizer
@@ -241,5 +250,14 @@ def main(args):
 
 
 if __name__ == '__main__':
+    # Import Apex AMP for mixed precision training
+    try:
+        from apex import amp
+        GOT_AMP = True
+        print("Apex AMP is available!")
+    except ImportError:
+        GOT_AMP = False
+        print("Apex AMP is NOT available!")
+
     args = parse_args()
     main(args)

@@ -9,18 +9,11 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from .utils import (
-    round_filters,
-    round_repeats,
-    drop_connect,
-    get_same_padding_conv2d,
-    get_model_params,
-    efficientnet_params,
-    load_pretrained_weights,
-    Swish,
-    MemoryEfficientSwish,
-    calculate_output_image_size
-)
+
+from .utils import (MemoryEfficientSwish, Swish, calculate_output_image_size,
+                    drop_connect, efficientnet_params, get_model_params,
+                    get_same_padding_conv2d, load_pretrained_weights,
+                    round_filters, round_repeats)
 
 
 class MBConvBlock(nn.Module):
@@ -225,9 +218,9 @@ class EfficientNet(nn.Module):
             num_features=out_channels, momentum=bn_mom, eps=bn_eps)
 
         # Final linear layer
-        # self._avg_pooling = nn.AdaptiveAvgPool2d(1)
-        # self._dropout = nn.Dropout(self._global_params.dropout_rate)
-        # self._fc = nn.Linear(out_channels, self._global_params.num_classes)
+        self._avg_pooling = nn.AdaptiveAvgPool2d(1)
+        self._dropout = nn.Dropout(self._global_params.dropout_rate)
+        self._fc = nn.Linear(out_channels, self._global_params.num_classes)
         self._swish = MemoryEfficientSwish()
 
     def set_swish(self, memory_efficient=True):
@@ -322,19 +315,16 @@ class EfficientNet(nn.Module):
         Returns:
             Output of this model after processing.
         """
-        # bs = inputs.size(0)
+        bs = inputs.size(0)
 
-        # # Convolution layers
-        # x = self.extract_features(inputs)
+        # Convolution layers
+        x = self.extract_features(inputs)
 
-        # # Pooling and final linear layer
-        # x = self._avg_pooling(x)
-        # x = x.view(bs, -1)
-        # x = self._dropout(x)
-        # x = self._fc(x)
-
-        endpoints = self.extract_endpoints(inputs)
-        x = [endpoints[f'reduction_{i+1}'] for i in range(1, 5)]
+        # Pooling and final linear layer
+        x = self._avg_pooling(x)
+        x = x.view(bs, -1)
+        x = self._dropout(x)
+        x = self._fc(x)
 
         return x
 
@@ -445,3 +435,39 @@ class EfficientNet(nn.Module):
             out_channels = round_filters(32, self._global_params)
             self._conv_stem = Conv2d(
                 in_channels, out_channels, kernel_size=3, stride=2, bias=False)
+
+
+class EfficientNetFeat(EfficientNet):
+    """EfficientNet model.
+       Most easily loaded with the .from_name or .from_pretrained methods.
+
+    Args:
+        blocks_args (list[namedtuple]): A list of BlockArgs to construct blocks.
+        global_params (namedtuple): A set of GlobalParams shared between blocks.
+
+    References:
+        [1] https://arxiv.org/abs/1905.11946 (EfficientNet)
+
+    Example:
+        >>> import torch
+        >>> from efficientnet.model import EfficientNet
+        >>> inputs = torch.rand(1, 3, 224, 224)
+        >>> model = EfficientNet.from_pretrained('efficientnet-b0')
+        >>> model.eval()
+        >>> outputs = model(inputs)
+    """
+
+    def forward(self, inputs):
+        """EfficientNet's forward function.
+           Calls extract_features to extract features, applies final linear layer, and returns logits.
+
+        Args:
+            inputs (tensor): Input tensor.
+
+        Returns:
+            Output of this model after processing.
+        """
+        endpoints = self.extract_endpoints(inputs)
+        x = [endpoints[f'reduction_{i+1}'] for i in range(1, 5)]
+
+        return x

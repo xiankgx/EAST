@@ -66,6 +66,15 @@ class VGG(nn.Module):
 
 
 def vgg16_bn(pretrained=True):
+    """Create a VGG16 network with Batch Normalization (BN) layers.
+
+    Args:
+        pretrained (bool, optional): Restore weights from a pretrained model. Defaults to True.
+
+    Returns:
+        [type]: [description]
+    """
+
     model = VGG(make_layers(cfg, batch_norm=True))
     if pretrained:
         model.load_state_dict(

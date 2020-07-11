@@ -9,6 +9,8 @@ import torch.utils.model_zoo as model_zoo
 from torch.nn import init
 
 """Adapted from: https://github.com/Cadene/pretrained-models.pytorch/blob/master/pretrainedmodels/models/xception.py"""
+
+
 """
 Ported to pytorch thanks to [tstandley](https://github.com/tstandley/Xception-PyTorch)
 
@@ -260,7 +262,7 @@ def xception(num_classes=1000, pretrained='imagenet'):
     return model
 
 
-class XceptionFeat(nn.Module):
+class XceptionFeat4EAST(nn.Module):
     """
     Xception optimized for the ImageNet dataset, as specified in
     https://arxiv.org/pdf/1610.02357.pdf
@@ -271,7 +273,7 @@ class XceptionFeat(nn.Module):
         Args:
             num_classes: number of classes
         """
-        super(XceptionFeat, self).__init__()
+        super(XceptionFeat4EAST, self).__init__()
 
         self.conv1 = nn.Conv2d(3, 32, 3, 2, 0, bias=False)
         self.bn1 = nn.BatchNorm2d(32)
@@ -361,7 +363,7 @@ class XceptionFeat(nn.Module):
 
 
 def xception_feature_extractor(pretrained=True):
-    """Create a xception feature extractor model.
+    """Create a xception feature extractor model for EAST.
 
     Args:
         pretrained (bool, optional): Whether to load weights from a model pretrained on the ImageNet dataset. Defaults to True.
@@ -370,7 +372,7 @@ def xception_feature_extractor(pretrained=True):
         nn.Module: Xception feature extractor model.
     """
 
-    model = XceptionFeat()
+    model = XceptionFeat4EAST()
     if pretrained:
         settings = pretrained_settings['xception']["imagenet"]
         model.load_state_dict(model_zoo.load_url(settings['url']),

@@ -120,8 +120,8 @@ def get_boxes(score, geo, score_thresh=0.9, nms_thresh=0.2, scale=4):
     xy_text = xy_text[np.argsort(xy_text[:, 0])]
     valid_pos = xy_text[:, ::-1].copy()  # n x 2, [x, y]
     valid_geo = geo[:, xy_text[:, 0], xy_text[:, 1]]  # 5 x n
-    polys_restored, index = restore_polys(
-        valid_pos, valid_geo, score.shape, scale=scale)
+    polys_restored, index = restore_polys(valid_pos, valid_geo, score.shape,
+                                          scale=scale)
     if polys_restored.size == 0:
         return None
 
@@ -170,8 +170,7 @@ def detect(img, model, device,
     img, ratio_h, ratio_w = resize_img(img)
 
     with torch.no_grad():
-        score, geo = model(load_pil(img,
-                                    preprocessing_params).to(device))
+        score, geo = model(load_pil(img, preprocessing_params).to(device))
 
     boxes = get_boxes(score.squeeze(0).cpu().numpy(),
                       geo.squeeze(0).cpu().numpy(),
@@ -228,12 +227,22 @@ def detect_dataset(model, device, test_img_path, submit_path):
 
 
 class Predictor(object):
+    """An object which can be used for making predictions with a pretrained model."""
+
     def __init__(self, config_path, device=None):
+        """Create a predictor object.
+
+        Args:
+            config_path (str): Training config file path.
+            device (str, optional): Computation device to use ('cuda' or 'cpu'). Defaults to None.
+        """
+
         self.config_path = config_path
         self._parse_config()
 
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"using device: {device}")
         self.device = device
 
         self._load_model()
@@ -252,6 +261,7 @@ class Predictor(object):
         # Instantiate model from configuration file
         model = EAST.from_config_file(self.config_path)
 
+        # Restore model weights
         if checkpoint_path is None or os.path.isdir(checkpoint_path):
             checkpoint_dir = os.path.join(self.config["training"]["prefix"], "checkpoints") \
                 if checkpoint_path is None else checkpoint_path
@@ -278,11 +288,11 @@ class Predictor(object):
         self.model = model
 
     def _get_scope(self):
-        """Input image size."""
+        """Scope is image or network input size."""
         self.scope = self.config["model"]["scope"]
 
     def _compute_scale(self):
-        """Compute scale."""
+        """Scale is scope divide by model output size."""
         dummy_out, _ = self.model(torch.rand(1, 3, self.scope, self.scope,
                                              device=self.device))
         scale = dummy_out.size(2)/self.scope
@@ -290,6 +300,7 @@ class Predictor(object):
         self.scale = int(1/scale)
 
     def _get_preprocessing_params(self):
+        """Get the input preprocessing parameters that was used to train the model."""
         self.preprocessing_params = self.model.get_preprocessing_params()
 
     def predict(self, img_path,
@@ -297,6 +308,17 @@ class Predictor(object):
                 return_img=False,
                 score_thresh=0.9,
                 nms_thresh=0.2):
+        """Make prediction on a given image.
+
+        Args:
+            img_path (str): image path
+            save_img (bool, optional): Save predicted image. Defaults to True.
+            out_img_path (str, optional): Where to save the predicted image. Defaults to "./prediction.jpg".
+            return_img (bool, optional): Whether the function should return the predicted image. Defaults to False.
+            score_thresh (float, optional): The threshold for a detection to be considered valid. Defaults to 0.9.
+            nms_thresh (float, optional): Non-maximal suppression threshold. Defaults to 0.2.
+        """
+
         img = Image.open(img_path)
         boxes = detect(img,
                        model=self.model,
@@ -318,24 +340,26 @@ class Predictor(object):
         print("Done!")
 
     def predict_dir(self, input_dir, output_dir="./predictions/"):
-        """Predict using images in a directory.
+        """Make prediction on images in a given directory.
 
         Args:
-            input_dir ([type]): Input directory containing images to be predicted.
-            output_dir ([type]): Output directory to store predicted results.
+            input_dir (str): Input directory containing images.
+            output_dir (str): Output directory to store predicted results.
         """
-        images = glob.glob(f"{input_dir}/**/*.jpg", recursive=True)
 
+        images = glob.glob(f"{input_dir}/**/*.jpg", recursive=True)
         print(f"Found {len(images)} images in {input_dir}")
 
-        os.makedirs(os.path.join(output_dir, "img"), exist_ok=True)
-        os.makedirs(os.path.join(output_dir, "pred"), exist_ok=True)
+        img_dir = os.path.join(output_dir, "img")
+        res_dir = os.path.join(output_dir, "res")
+        os.makedirs(img_dir, exist_ok=True)
+        os.makedirs(res_dir, exist_ok=True)
         for p in images:
             boxes = self.predict(p,
                                  save_img=True,
-                                 out_img_path=os.path.join(output_dir, "img", os.path.basename(p)))
+                                 out_img_path=os.path.join(img_dir, os.path.basename(p)))
             if boxes is not None:
-                with open(os.path.join(output_dir, "pred", os.path.splitext(os.path.basename(p))[0] + ".txt"), "w") as f:
+                with open(os.path.join(res_dir, os.path.splitext(os.path.basename(p))[0] + ".txt"), "w") as f:
                     for b in boxes:
                         f.write(
                             f"{','.join([str(int(v)) for v in b.tolist()])}\n")
@@ -344,7 +368,7 @@ class Predictor(object):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser("EAST trainer")
+    parser = argparse.ArgumentParser("EAST detector")
     parser.add_argument("--config_path",
                         type=str,
                         default="configs/config.yaml",

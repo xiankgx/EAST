@@ -322,7 +322,7 @@ class PVANetFeat(nn.Module):
         x3 = self.conv4(x2)         # 1/16
         x4 = self.conv5(x3)         # 1/32
 
-        return [x1, x2, x3, x4]
+        return x4
 
     def gen_InceptionA(self, n_in, stride=1, poolconv=False, n_out=256):
         if (n_in != n_out) or (stride > 1):
@@ -401,5 +401,5 @@ def pvanet(**kwargs):
 
 if __name__ == "__main__":
     model = PVANetFeat()
-    out = model(torch.rand(2, 3, 512, 512), output_all_fms=True)
-    print([t.shape for t in out])
+    out = model(torch.rand(2, 3, 512, 512))
+    print(out.shape)

@@ -6,11 +6,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 
-from .efficientnet import EfficientNet
+from .efficientnet import EfficientNetFeat
 from .pvanet import PVANetFeat
 from .vgg import vgg16_bn
-from .xception import xception_feature_extractor, pretrained_settings as xception_pretrained_settings
-
+from .xception import pretrained_settings as xception_pretrained_settings
+from .xception import xception_feature_extractor
 
 preprocessing_params = {
     # VGG
@@ -64,18 +64,19 @@ preprocessing_params = {
     }
 }
 
-
 ###############################################################################
 # Common
 ###############################################################################
 
 
 class ConvBNReLU(nn.Module):
+    """A commonly used block in CNNs consisting of a 2D-convolution layer, followed by batch normaliztion and ReLU activation."""
+
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
         super(ConvBNReLU, self).__init__()
 
-        self.conv = nn.Conv2d(in_channels, out_channels,
-                              kernel_size, padding=padding)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
+                              padding=padding)
         self.bn = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -85,13 +86,15 @@ class ConvBNReLU(nn.Module):
         return x
 
 ###############################################################################
-# VGG backbone
+# Backbone
 ###############################################################################
 
 
-class VGG16BNFeatureExtractor(nn.Module):
+class VGG16BNFeat(nn.Module):
+    """VGG16 BN feature extractor for EAST"""
+
     def __init__(self, pretrained):
-        super(VGG16BNFeatureExtractor, self).__init__()
+        super(VGG16BNFeat, self).__init__()
         backbone = vgg16_bn(pretrained)
         self.features = backbone.features
 
@@ -105,6 +108,8 @@ class VGG16BNFeatureExtractor(nn.Module):
 
 
 class VGGFeatureMerger(nn.Module):
+    """VGG feature merger for EAST"""
+
     def __init__(self):
         super(VGGFeatureMerger, self).__init__()
 
@@ -169,24 +174,39 @@ class VGGFeatureMerger(nn.Module):
         y = self.relu7(self.bn7(self.conv7(y)))
         return y
 
-###############################################################################
-# EfficientNet backbone
-###############################################################################
 
-
-class EfficientNetFeatureExtractor(nn.Module):
-    def __init__(self, pretrained, model_name="efficientnet-b3"):
-        super(EfficientNetFeatureExtractor, self).__init__()
-        if pretrained:
-            model = EfficientNet.from_pretrained(model_name)
-        else:
-            model = EfficientNet.from_name(model_name)
-        self.features = model
-
+class PVANetFeat4EAST(PVANetFeat):
     def forward(self, x):
-        features = self.features(x)
-        # return features[-4:]
-        return features
+        x0 = self.conv1(x)
+        x1 = self.conv2(x0)         # 1/4 feature
+        x2 = self.conv3(x1)         # 1/8
+        x3 = self.conv4(x2)         # 1/16
+        x4 = self.conv5(x3)         # 1/32
+        return [x1, x2, x3, x4]
+
+
+def vgg16_bn_feature_extractor(pretrained):
+    """Create a VGG16 BN feature extractor model for EAST."""
+    model = VGG16BNFeat(pretrained)
+    return model
+
+
+def efficientnet_feature_extractor(pretrained: bool = True, model_name: str = "efficientnet-b3"):
+    """Create a EfficientNet feature extractor model for EAST."""
+    if pretrained:
+        model = EfficientNetFeat.from_pretrained(model_name)
+    else:
+        model = EfficientNetFeat.from_name(model_name)
+    return model
+
+
+def pvanet_feature_extractor(pretrained: bool):
+    """Create a PVANet feature extractor model for EAST."""
+    model = PVANetFeat4EAST()
+    if pretrained:
+        print("Warning, no pretrained weights for PVANet backbone! Note: This is not an error.")
+    return model
+
 
 ###############################################################################
 # EAST model and sub-modules
@@ -311,17 +331,14 @@ class EAST(nn.Module):
         self.merger_inter_out_channels = merger_inter_out_channels
         self.merged_channels = merged_channels
 
+        # Create backbone model
         if backbone == "vgg16_bn":
-            self.extractor = VGG16BNFeatureExtractor(pretrained)
+            self.extractor = vgg16_bn_feature_extractor(pretrained)
         elif backbone in [f"efficientnet-b{i}" for i in range(8)]:
-            self.extractor = EfficientNetFeatureExtractor(pretrained,
-                                                          model_name=backbone)
+            self.extractor = efficientnet_feature_extractor(pretrained,
+                                                            model_name=backbone)
         elif backbone == "pvanet":
-            self.extractor = PVANetFeat()
-
-            if pretrained:
-                print(
-                    "Warning, no pretrained weights for PVANet backbone! Note: This is not an error.")
+            self.extractor = pvanet_feature_extractor(pretrained)
         elif backbone == "xception":
             self.extractor = xception_feature_extractor(pretrained)
         else:
@@ -332,6 +349,7 @@ class EAST(nn.Module):
         feature_dims = [int(t.size(1)) for t in dummy_out]
         print(f"feature_dims: {feature_dims}")
 
+        # Create feature merger and output modules
         self.merge = FeatureMerger(input_feature_dims=feature_dims,
                                    inter_out_channels=merger_inter_out_channels,
                                    out_channels=merged_channels)
@@ -374,6 +392,7 @@ class EAST(nn.Module):
         return model
 
     def get_preprocessing_params(self):
+        """Get input preprocessing parameters that are used to train the model."""
         return preprocessing_params[self.backbone]
 
 
