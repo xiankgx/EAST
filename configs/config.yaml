@@ -1,12 +1,12 @@
 model:
   pretrained: true
-  backbone: "efficientnet-b4"
+  backbone: "xception"
   scope: 512
   merger_inter_out_channels: [256, 128, 64]
   merged_channels: 32
 
 training:
-  prefix: "./runs/efnb4_scope512_inter256_128_64_merged32_icdar2015/"
+  prefix: "./runs/xception_scope512_inter256_128_64_merged32_icdar2015/"
   img_root_dir:
     train: "/mnt/9C5E1A4D5E1A2116/datasets/ICDAR_2015/train_img"
   annotations_root_dir:

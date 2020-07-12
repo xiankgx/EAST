@@ -11,6 +11,7 @@ from .pvanet import PVANetFeat
 from .vgg import vgg16_bn
 from .xception import pretrained_settings as xception_pretrained_settings
 from .xception import xception_feature_extractor
+from .deeplapv3plus import deeplabv3plus_resnet50, deeplabv3plus_resnet101, deeplabv3plus_mobilenet
 
 preprocessing_params = {
     # VGG
@@ -19,41 +20,17 @@ preprocessing_params = {
         "std": (0.5, 0.5, 0.5)
     },
 
-    # EfficientNet
     "efficientnet-b0": {
-        "mean": (0.485, 0.456, 0.406),
-        "std": (0.229, 0.224, 0.225)
-    },
-    "efficientnet-b1": {
-        "mean": (0.485, 0.456, 0.406),
-        "std": (0.229, 0.224, 0.225)
-    },
-    "efficientnet-b2": {
-        "mean": (0.485, 0.456, 0.406),
-        "std": (0.229, 0.224, 0.225)
-    },
-    "efficientnet-b3": {
-        "mean": (0.485, 0.456, 0.406),
-        "std": (0.229, 0.224, 0.225)
-    },
-    "efficientnet-b4": {
-        "mean": (0.485, 0.456, 0.406),
-        "std": (0.229, 0.224, 0.225)
-    },
-    "efficientnet-b5": {
-        "mean": (0.485, 0.456, 0.406),
-        "std": (0.229, 0.224, 0.225)
-    },
-    "efficientnet-b6": {
-        "mean": (0.485, 0.456, 0.406),
-        "std": (0.229, 0.224, 0.225)
-    },
-    "efficientnet-b7": {
         "mean": (0.485, 0.456, 0.406),
         "std": (0.229, 0.224, 0.225)
     },
 
     "pvanet": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+
+    "deeplabv3plus": {
         "mean": (0.485, 0.456, 0.406),
         "std": (0.229, 0.224, 0.225)
     },
@@ -331,6 +308,7 @@ class EAST(nn.Module):
         self.scope = scope
         self.merger_inter_out_channels = merger_inter_out_channels
         self.merged_channels = merged_channels
+        self.model_type = "east"
 
         # Create backbone model
         if backbone == "vgg16_bn":
@@ -342,29 +320,52 @@ class EAST(nn.Module):
             self.extractor = pvanet_feature_extractor(pretrained)
         elif backbone == "xception":
             self.extractor = xception_feature_extractor(pretrained)
+        elif "deeplabv3plus" in backbone:
+            backbone = backbone.split("_")[-1]
+
+            deeplabv3plus_params = {
+                "num_classes": merged_channels,
+                "pretrained_backbone": pretrained
+            }
+
+            if backbone == "resnet50":
+                self.extractor = deeplabv3plus_resnet50(**deeplabv3plus_params)
+            elif backbone == "resnet101":
+                self.extractor = deeplabv3plus_resnet101(
+                    **deeplabv3plus_params)
+            elif backbone == "mobilenetv2":
+                self.extractor = deeplabv3plus_mobilenet(
+                    **deeplabv3plus_params)
+            else:
+                raise ValueError(
+                    f"Unknown backbone for DeepLabV3Plus: {backbone}")
+
+            self.model_type = "deeplabv3plus"
         else:
             raise ValueError(f"Unknown backbone: {backbone}")
 
-        # Compute extracted feature map channel dimensions
-        dummy_out = self.extractor(torch.randn(1, 3, 256, 256))
-        feature_dims = [int(t.size(1)) for t in dummy_out]
-        print(f"feature_dims: {feature_dims}")
+        if self.model_type == "east":
+            # Compute extracted feature map channel dimensions
+            dummy_out = self.extractor(torch.randn(1, 3, 256, 256))
+            feature_dims = [int(t.size(1)) for t in dummy_out]
+            print(f"feature_dims: {feature_dims}")
 
-        # Create feature merger and output modules
-        self.merge = FeatureMerger(input_feature_dims=feature_dims,
-                                   inter_out_channels=merger_inter_out_channels,
-                                   out_channels=merged_channels)
+            # Create feature merger and output modules
+            self.merge = FeatureMerger(input_feature_dims=feature_dims,
+                                       inter_out_channels=merger_inter_out_channels,
+                                       out_channels=merged_channels)
         self.output = Output(in_channels=merged_channels,
                              scope=scope)
 
     def forward(self, x):
-        x = self.extractor(x)
+        # EAST model with encoder-decoder
+        if self.model_type == "east":
+            x = self.extractor(x)
+            x = self.merge(x)
 
-        # for i, t in enumerate(x):
-        #     print(f"extractor output #{i} shape: {t.shape}")
-
-        x = self.merge(x)
-        # print(f"merge output shape: {x.shape}")
+        # DeepLabV3Plus model with encoder-decoder and atrous convolution
+        else:
+            x = self.extractor(x)
 
         x = self.output(x)
         return x
@@ -394,17 +395,27 @@ class EAST(nn.Module):
 
     def get_preprocessing_params(self):
         """Get input preprocessing parameters that are used to train the model."""
-        return preprocessing_params[self.backbone]
+
+        if "efficientnet" in self.backbone:
+            return preprocessing_params["efficientnet"]
+        if "deeplabv3plus" in self.backbone:
+            return preprocessing_params["deeplabv3plus"]
+        else:
+            return preprocessing_params[self.backbone]
 
 
 ###############################################################################
 
 if __name__ == '__main__':
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = EAST.from_config_file().to(device)
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    device = "cpu"
+    # model = deeplabv3plus_resnet50(3, pretrained_backbone=False)
+    model = EAST(True, "deeplabv3plus_resnet50", 32)
+    # model = EAST.from_config_file().to(device)
     print(model)
 
-    x = torch.randn(1, 3, 512, 512).to(device)
+    x = torch.randn(2, 3, 512, 512).to(device)
     score, geo = model(x)
 
     scale = score.size(2)/512

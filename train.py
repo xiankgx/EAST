@@ -133,7 +133,7 @@ class Trainer(object):
         else:
             print(f"Training using 1 {'GPU' if 'cuda' in  device else 'CPU'}.")
 
-        dummy_out, _ = model(torch.rand(1, 3, self.config["model"]["scope"], self.config["model"]["scope"],
+        dummy_out, _ = model(torch.rand(4, 3, self.config["model"]["scope"], self.config["model"]["scope"],
                                         device=device))
         scale = dummy_out.size(2)/self.config["model"]["scope"]
         print(f"scale: {scale}")
