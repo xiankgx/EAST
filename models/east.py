@@ -6,12 +6,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 
+from .deeplapv3plus import (deeplabv3plus_mobilenet, deeplabv3plus_resnet50,
+                           deeplabv3plus_resnet101)
 from .efficientnet import EfficientNetFeat
 from .pvanet import PVANetFeat
+from .res2net_v1b import res2net50_v1b_feature_extractor, res2net101_v1b_feature_extractor
 from .vgg import vgg16_bn
 from .xception import pretrained_settings as xception_pretrained_settings
 from .xception import xception_feature_extractor
-from .deeplapv3plus import deeplabv3plus_resnet50, deeplabv3plus_resnet101, deeplabv3plus_mobilenet
 
 preprocessing_params = {
     # VGG
@@ -20,7 +22,7 @@ preprocessing_params = {
         "std": (0.5, 0.5, 0.5)
     },
 
-    "efficientnet-b0": {
+    "efficientnet": {
         "mean": (0.485, 0.456, 0.406),
         "std": (0.229, 0.224, 0.225)
     },
@@ -31,6 +33,11 @@ preprocessing_params = {
     },
 
     "deeplabv3plus": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+
+    "res2net": {
         "mean": (0.485, 0.456, 0.406),
         "std": (0.229, 0.224, 0.225)
     },
@@ -320,6 +327,13 @@ class EAST(nn.Module):
             self.extractor = pvanet_feature_extractor(pretrained)
         elif backbone == "xception":
             self.extractor = xception_feature_extractor(pretrained)
+        elif "res2net" in backbone:
+            if backbone == "res2net50_v1b":
+                self.extractor = res2net50_v1b_feature_extractor(pretrained)
+            elif backbone == "res2net101_v1b":
+                self.extractor = res2net101_v1b_feature_extractor(pretrained)
+            else:
+                raise ValueError(f"Unknown res2net backbone: {backbone}")
         elif "deeplabv3plus" in backbone:
             backbone = backbone.split("_")[-1]
 
@@ -398,8 +412,10 @@ class EAST(nn.Module):
 
         if "efficientnet" in self.backbone:
             return preprocessing_params["efficientnet"]
-        if "deeplabv3plus" in self.backbone:
+        elif "deeplabv3plus" in self.backbone:
             return preprocessing_params["deeplabv3plus"]
+        elif "res2net" in self.backbone:
+            return preprocessing_params["res2net"]
         else:
             return preprocessing_params[self.backbone]
 
