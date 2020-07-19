@@ -327,8 +327,10 @@ class Predictor(object):
                        preprocessing_params=self.preprocessing_params,
                        score_thresh=score_thresh,
                        nms_thresh=nms_thresh)
-        if save_img:
+
+        if save_img or return_img:
             plot_img = plot_boxes(img, boxes)
+        if save_img:
             os.makedirs(os.path.dirname(out_img_path), exist_ok=True)
             plot_img.save(out_img_path)
 
