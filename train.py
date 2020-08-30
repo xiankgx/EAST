@@ -20,7 +20,7 @@ from models import EAST
 class Trainer(object):
     """An object that can be used for training a EAST model."""
 
-    def __init__(self, config_path):
+    def __init__(self, config_path: str):
         """Create a trainer object.
 
         Args:
@@ -34,6 +34,7 @@ class Trainer(object):
         self._save_code()
 
     def _parse_config(self):
+        """Parse configurations from config file."""
         with open(self.config_path, "r") as f:
             self.config = yaml.load(f, Loader=yaml.Loader)
 

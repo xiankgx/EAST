@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import yaml
 
 from .deeplapv3plus import (deeplabv3plus_mobilenet, deeplabv3plus_resnet50,
-                           deeplabv3plus_resnet101)
+                            deeplabv3plus_resnet101)
 from .efficientnet import EfficientNetFeat
 from .pvanet import PVANetFeat
 from .res2net_v1b import res2net50_v1b_feature_extractor, res2net101_v1b_feature_extractor
@@ -58,6 +58,12 @@ class ConvBNReLU(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
         super(ConvBNReLU, self).__init__()
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.padding = padding
+        # TODO: Add stride parameter?
 
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
                               padding=padding)
@@ -162,14 +168,14 @@ class VGGFeatureMerger(nn.Module):
 class PVANetFeat4EAST(PVANetFeat):
     def forward(self, x):
         x0 = self.conv1(x)
-        x1 = self.conv2(x0)         # 1/4 feature
-        x2 = self.conv3(x1)         # 1/8
-        x3 = self.conv4(x2)         # 1/16
-        x4 = self.conv5(x3)         # 1/32
+        x1 = self.conv2(x0)  # 1/4 feature
+        x2 = self.conv3(x1)  # 1/8
+        x3 = self.conv4(x2)  # 1/16
+        x4 = self.conv5(x3)  # 1/32
         return [x1, x2, x3, x4]
 
 
-def vgg16_bn_feature_extractor(pretrained):
+def vgg16_bn_feature_extractor(pretrained: bool):
     """Create a VGG16 BN feature extractor model for EAST."""
     model = VGG16BNFeat(pretrained)
     return model
@@ -203,13 +209,13 @@ class FeatureMerger(nn.Module):
                  inter_out_channels=[
                      128, 64, 32
                  ],
-                 out_channels=32):
-        """Feature merger module.  It merges the feature maps of different layers from the CNN encoder
+                 out_channels: int = 32):
+        """Feature merger module. It merges the feature maps of different layers from the CNN encoder
         to become a single feature map.
 
         Args:
-            input_feature_dims (list, optional): The channel dimensions of the input feature maps. Defaults to [ 16, 32, 48, 136, 1536 ].
-            inter_out_channels (list, optional): The channel dimensions of the intermediate output feature maps. Defaults to [ 128, 64, 32, 32 ].
+            input_feature_dims (List[int], optional): The channel dimensions of the input feature maps. Defaults to [ 16, 32, 48, 136, 1536 ].
+            inter_out_channels (List[int], optional): The channel dimensions of the intermediate output feature maps. Defaults to [ 128, 64, 32, 32 ].
             out_channels (int, optional): The channel dimension of the output feature map. Defaults to 32.
         """
 
@@ -260,7 +266,7 @@ class FeatureMerger(nn.Module):
 
 
 class Output(nn.Module):
-    def __init__(self, in_channels=32, scope=512):
+    def __init__(self, in_channels: int = 32, scope: int = 512):
         """EAST output module. Takes a feature map from an earlier layer and
         outputs 3 feature maps, one for each output:
             a) score,
@@ -268,8 +274,8 @@ class Output(nn.Module):
             c) angle
 
         Args:
-            input_channels (int, optional): [description]. Defaults to 32.
-            scope (int, optional): [description]. Defaults to 512.
+            input_channels (int, optional): Number of input channels. Defaults to 32.
+            scope (int, optional): Model input size (width/height). Defaults to 512.
         """
 
         super(Output, self).__init__()
@@ -295,18 +301,27 @@ class Output(nn.Module):
     def forward(self, x):
         score = torch.sigmoid(self.conv1(x))
         loc = torch.sigmoid(self.conv2(x)) * self.scope
+        # 2pi - 360 deg
+        # 0.5pi -> x = (0.5 * 360)/2 = 90 deg
+        # angle can only be in the range [-90, 90] degrees
         angle = (torch.sigmoid(self.conv3(x)) - 0.5) * math.pi
         geo = torch.cat((loc, angle), 1)
         return score, geo
 
 
 class EAST(nn.Module):
+    """Zhou, X., Yao, C., Wen, H., Wang, Y., Zhou, S., He, W., & Liang, J. (2017). 
+    EAST: An Efficient and Accurate Scene Text Detector. 
+    2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017-Janua, 2642–2651. 
+    https://doi.org/10.1109/CVPR.2017.283
+    """
+
     def __init__(self,
-                 pretrained=True,
-                 backbone="efficientnet-b3",
-                 scope=512,
+                 pretrained: bool = True,
+                 backbone: str = "efficientnet-b3",
+                 scope: int = 512,
                  merger_inter_out_channels=[128, 64, 32, 32],
-                 merged_channels=32,
+                 merged_channels: int = 32,
                  ):
         super(EAST, self).__init__()
 
@@ -343,7 +358,8 @@ class EAST(nn.Module):
             }
 
             if backbone == "resnet50":
-                self.extractor = deeplabv3plus_resnet50(**deeplabv3plus_params)
+                self.extractor = deeplabv3plus_resnet50(
+                    **deeplabv3plus_params)
             elif backbone == "resnet101":
                 self.extractor = deeplabv3plus_resnet101(
                     **deeplabv3plus_params)
@@ -385,7 +401,7 @@ class EAST(nn.Module):
         return x
 
     @staticmethod
-    def from_config_file(path="../configs/config.yaml"):
+    def from_config_file(path: str = "../configs/config.yaml"):
         """Instantiate model from config file.
 
         Args:
@@ -403,8 +419,6 @@ class EAST(nn.Module):
         model_conf = conf["model"]
 
         model = EAST(**model_conf)
-
-        # model = EAST()
         return model
 
     def get_preprocessing_params(self):

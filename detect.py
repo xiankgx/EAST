@@ -14,7 +14,7 @@ from dataset import get_rotate_mat
 from models import EAST
 
 
-def resize_img(img):
+def resize_img(img: Image):
     '''resize image to be divisible by 32
     '''
 
@@ -22,6 +22,7 @@ def resize_img(img):
     resize_w = w
     resize_h = h
 
+    # Make divisible by 2*5 = 32
     resize_h = resize_h if resize_h % 32 == 0 else int(resize_h / 32) * 32
     resize_w = resize_w if resize_w % 32 == 0 else int(resize_w / 32) * 32
     img = img.resize((resize_w, resize_h), Image.BILINEAR)
@@ -52,11 +53,16 @@ def is_valid_poly(res, score_shape, scale):
             True if valid
     '''
 
+    # Count number of box vertices outside image.
     cnt = 0
     for i in range(res.shape[1]):
-        if res[0, i] < 0 or res[0, i] >= score_shape[1] * scale or \
-                res[1, i] < 0 or res[1, i] >= score_shape[0] * scale:
+        if res[0, i] < 0 \
+                or res[0, i] >= score_shape[1] * scale \
+            or res[1, i] < 0 \
+                or res[1, i] >= score_shape[0] * scale:
             cnt += 1
+
+    # Allow at most 1 vertex outside image.
     return True if cnt <= 1 else False
 
 
@@ -112,7 +118,7 @@ def get_boxes(score, geo, score_thresh=0.9, nms_thresh=0.2, scale=4):
             boxes       : final polys <numpy.ndarray, (n,9)>
     '''
 
-    score = score[0, :, :]
+    score = score[0, :, :]  # 0 for first sample
     xy_text = np.argwhere(score > score_thresh)  # n x 2, format is [r, c]
     if xy_text.size == 0:
         return None
@@ -145,6 +151,7 @@ def adjust_ratio(boxes, ratio_w, ratio_h):
     if boxes is None or boxes.size == 0:
         return None
 
+    # data: x1, y1, x2, y2, x3, y3, x4, y4
     boxes[:, [0, 2, 4, 6]] /= ratio_w
     boxes[:, [1, 3, 5, 7]] /= ratio_h
     return np.around(boxes)
@@ -167,17 +174,21 @@ def detect(img, model, device,
             detected polys
     '''
 
+    # Resize input image to meet model's input expectation
     img, ratio_h, ratio_w = resize_img(img)
 
+    # Predict
     with torch.no_grad():
         score, geo = model(load_pil(img, preprocessing_params).to(device))
 
+    # Extract boxes
     boxes = get_boxes(score.squeeze(0).cpu().numpy(),
                       geo.squeeze(0).cpu().numpy(),
                       score_thresh=score_thresh,
                       nms_thresh=nms_thresh,
                       scale=scale)
 
+    # Resize boxes
     return adjust_ratio(boxes, ratio_w, ratio_h)
 
 
@@ -191,9 +202,13 @@ def plot_boxes(img, boxes):
     draw = ImageDraw.Draw(img)
     for box in boxes:
         draw.polygon([
+            # Top left
             (box[0], box[1]),
+            # Top right
             (box[2], box[3]),
+            # Bottom left
             (box[4], box[5]),
+            # Bottom right
             (box[6], box[7])
         ],
             outline=(0, 255, 0)  # GX: green color outline
@@ -229,7 +244,7 @@ def detect_dataset(model, device, test_img_path, submit_path):
 class Predictor(object):
     """An object which can be used for making predictions with a pretrained model."""
 
-    def __init__(self, config_path, device=None):
+    def __init__(self, config_path: str, device: str = None):
         """Create a predictor object.
 
         Args:

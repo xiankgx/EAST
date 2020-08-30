@@ -402,8 +402,9 @@ def rotate_img(img, vertices, angle_range=30):
     img = img.rotate(angle, Image.BILINEAR)
     new_vertices = np.zeros(vertices.shape)
     for i, vertice in enumerate(vertices):
-        new_vertices[i, :] = rotate_vertices(
-            vertice, -angle / 180 * math.pi, np.array([[center_x], [center_y]]))
+        new_vertices[i, :] = rotate_vertices(vertice,
+                                             -angle / 180 * math.pi,
+                                             np.array([[center_x], [center_y]]))
     return img, new_vertices
 
 
@@ -493,12 +494,12 @@ def extract_vertices(lines):
 
 class custom_dataset(data.Dataset):
     def __init__(self,
-                 img_path,
-                 gt_path,
+                 img_path: str,
+                 gt_path: str,
                  #  scale=0.25,
-                 scale,  # XXX
+                 scale: float,  # XXX
                  normalization_params,
-                 length=512):
+                 length: int = 512):
         """custom dataset
 
         Args:
@@ -536,7 +537,7 @@ class custom_dataset(data.Dataset):
         if np.random.rand() < 0.5:
             img, vertices = crop_img(img, vertices, labels, self.length)
         else:
-            # Squash resize
+            # Squashed resize
             old_img_w, old_img_h = img.width, img.height
             img = img.resize((self.length, self.length), Image.BILINEAR)
             vertices[:, [0, 2, 4, 6]] = vertices[:,
@@ -567,6 +568,9 @@ class custom_dataset(data.Dataset):
                                  std=self.normalization_params["std"])
         ])
 
-        score_map, geo_map, ignored_map = get_score_geo(
-            img, vertices, labels, self.scale, self.length)
+        score_map, geo_map, ignored_map = get_score_geo(img,
+                                                        vertices,
+                                                        labels,
+                                                        self.scale,
+                                                        self.length)
         return transform(img), score_map, geo_map, ignored_map
