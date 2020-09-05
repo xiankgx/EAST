@@ -1,5 +1,6 @@
 import argparse
 import glob
+import math
 import os
 import time
 from shutil import copyfile, copytree, rmtree
@@ -140,17 +141,31 @@ class Trainer(object):
         print(f"scale: {scale}")
 
         # Get dataloader
+        normalization_params = model.module.get_preprocessing_params() if hasattr(
+            model, "module") else model.get_preprocessing_params()
         trainset = custom_dataset(img_path=self.config["training"]["img_root_dir"]["train"],
                                   gt_path=self.config["training"]["annotations_root_dir"]["train"],
                                   scale=scale,
-                                  normalization_params=model.module.get_preprocessing_params() if hasattr(
-                                      model, "module") else model.get_preprocessing_params(),
+                                  normalization_params=normalization_params,
                                   length=self.config["model"]["scope"])
         train_loader = data.DataLoader(trainset,
                                        batch_size=self.config["training"]["batch_size"],
                                        shuffle=True,
                                        num_workers=self.config["training"]["num_workers"],
                                        drop_last=True)
+
+        test_loader = None
+        if "test" in self.config["training"]["img_root_dir"]:
+            testset = custom_dataset(img_path=self.config["training"]["img_root_dir"]["test"],
+                                     gt_path=self.config["training"]["annotations_root_dir"]["test"],
+                                     scale=scale,
+                                     normalization_params=normalization_params,
+                                     length=self.config["model"]["scope"])
+            test_loader = data.DataLoader(testset,
+                                          batch_size=self.config["training"]["batch_size"],
+                                          shuffle=True,
+                                          num_workers=self.config["training"]["num_workers"],
+                                          drop_last=True)
 
         # Instantiate scheduler
         scheduler = lr_scheduler.OneCycleLR(optimizer,
@@ -184,8 +199,13 @@ class Trainer(object):
             for _, (img, gt_score, gt_geo, ignored_map) in enumerate(train_loader):
                 start_time = time.time()
 
-                img, gt_score, gt_geo, ignored_map = img.to(device), gt_score.to(
-                    device), gt_geo.to(device), ignored_map.to(device)
+                assert model.training, "Model is not in training mode!"
+
+                img, gt_score, gt_geo, ignored_map = \
+                    img.to(device), \
+                    gt_score.to(device), \
+                    gt_geo.to(device), \
+                    ignored_map.to(device)
                 pred_score, pred_geo = model(img)
 
                 loss = criterion(gt_score, pred_score.to(gt_score.dtype),
@@ -214,6 +234,57 @@ class Trainer(object):
                                       loss.item(),
                                       global_step=global_step)
                 if global_step % self.config["training"]["checkpoint"]["frequency"] == 0:
+                    # Testing
+
+                    # Put model in eval mode
+                    model.eval()
+
+                    # No need gradient during testing
+                    with torch.no_grad():
+                        for _, (img, gt_score, gt_geo, ignored_map) in enumerate(test_loader):
+                            img, gt_score, gt_geo, ignored_map = img.to(device), \
+                                gt_score.to(device), \
+                                gt_geo.to(device), \
+                                ignored_map.to(device)
+
+                            pred_score, pred_geo = model(img)
+
+                            writer.add_images("image",
+                                              img * torch.tensor(normalization_params["std"]).reshape(1, 3, 1, 1).to(
+                                                  device) + torch.tensor(normalization_params["mean"]).reshape(1, 3, 1, 1).to(device),
+                                              global_step=global_step)
+
+                            writer.add_images("score_map/gt",
+                                              gt_score,
+                                              global_step=global_step)
+                            writer.add_images("score_map/pred",
+                                              pred_score,
+                                              global_step=global_step)
+
+                            for i in range(5):
+                                if i == 4:
+                                    writer.add_images(f"geo_map_{i}/gt",
+                                                      (gt_geo[:, [i], :,
+                                                              :] / math.pi) + 0.5,
+                                                      global_step=global_step)
+                                    writer.add_images(f"geo_map_{i}/pred",
+                                                      (pred_geo[:, [
+                                                       i], :, :] / math.pi) + 0.5,
+                                                      global_step=global_step)
+                                else:
+                                    writer.add_images(f"geo_map_{i}/gt",
+                                                      gt_geo[:, [i], :, :],
+                                                      global_step=global_step)
+                                    writer.add_images(f"geo_map_{i}/pred",
+                                                      pred_geo[:, [i], :, :],
+                                                      global_step=global_step)
+
+                            # Break after first batch
+                            break
+
+                    # Put model back to training mode
+                    model.train()
+
                     save_model(global_step,
                                self.config["training"]["checkpoint"]["max_checkpoints"])
 
@@ -221,7 +292,7 @@ class Trainer(object):
             print('epoch: {:4d}, loss: {:.5f}, time {:.1f} s'.format(
                 epoch+1,
                 epoch_loss,
-                time.time()-epoch_time
+                time.time() - epoch_time
             ))
             writer.add_scalar("loss/train/epoch",
                               epoch_loss,

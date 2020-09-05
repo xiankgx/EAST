@@ -1,18 +1,16 @@
 model:
   pretrained: true
-  backbone: "resnet50"
+  backbone: "efficientnet-b5"
   scope: 512
-  merger_inter_out_channels: [128, 64, 32]
+  merger_inter_out_channels: [256, 128, 64]
   merged_channels: 32
 
 training:
-  prefix: "./runs/rn50_scope512_inter128_64_32_merged32_icdar2015/"
+  prefix: "./runs/efficientnetb5_scope512_inter256_128_64_merged32_icdar2015/"
   img_root_dir:
     train: "../datasets/ICDAR_2015/train_img"
-    test: "../datasets/ICDAR_2015/train_img"
   annotations_root_dir:
     train: "../datasets/ICDAR_2015/train_gt"
-    test: "../datasets/ICDAR_2015/train_gt"
   batch_size: 3
   learning_rate: 0.001
   epochs: 1000

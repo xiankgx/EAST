@@ -23,8 +23,12 @@ def resize_img(img: Image):
     resize_h = h
 
     # Make divisible by 2*5 = 32
-    resize_h = resize_h if resize_h % 32 == 0 else int(resize_h / 32) * 32
-    resize_w = resize_w if resize_w % 32 == 0 else int(resize_w / 32) * 32
+    # resize_h = resize_h if resize_h % 32 == 0 else int(resize_h / 32) * 32
+    # resize_w = resize_w if resize_w % 32 == 0 else int(resize_w / 32) * 32
+    # XXX At the moment, the model can only predict values in range [0, scope] depending on scope used during training
+    resize_h = 512
+    resize_w = 512
+
     img = img.resize((resize_w, resize_h), Image.BILINEAR)
     ratio_h = resize_h / h
     ratio_w = resize_w / w
@@ -56,10 +60,10 @@ def is_valid_poly(res, score_shape, scale):
     # Count number of box vertices outside image.
     cnt = 0
     for i in range(res.shape[1]):
-        if res[0, i] < 0 \
-                or res[0, i] >= score_shape[1] * scale \
-            or res[1, i] < 0 \
-                or res[1, i] >= score_shape[0] * scale:
+        if (res[0, i] < 0) \
+                or (res[0, i] >= score_shape[1] * scale) \
+                or (res[1, i] < 0) \
+                or (res[1, i] >= score_shape[0] * scale):
             cnt += 1
 
     # Allow at most 1 vertex outside image.
@@ -77,6 +81,11 @@ def restore_polys(valid_pos, valid_geo, score_shape, scale=4):
             restored polys <numpy.ndarray, (n,8)>, index
     '''
 
+    print(f">>> restore_polys: valid_pos shape: {valid_pos.shape}")
+    print(f">>> restore_polys: valid_geo shape: {valid_geo.shape}")
+    print(f">>> restore_polys: score_shape: {score_shape}")
+    print(f">>> restore_polys: scale: {scale}")
+
     polys = []
     index = []
     # print(f"valid_pos: {valid_pos.dtype}")
@@ -84,9 +93,13 @@ def restore_polys(valid_pos, valid_geo, score_shape, scale=4):
     d = valid_geo[:4, :]  # 4 x N
     angle = valid_geo[4, :]  # N,
 
+    print(f">>> restore_polys: d    : {d}")
+    print(f">>> restore_polys: angle: {angle}")
+
     for i in range(valid_pos.shape[0]):
         x = valid_pos[i, 0]
         y = valid_pos[i, 1]
+
         y_min = y - d[0, i]
         y_max = y + d[1, i]
         x_min = x - d[2, i]
@@ -102,8 +115,10 @@ def restore_polys(valid_pos, valid_geo, score_shape, scale=4):
 
         if is_valid_poly(res, score_shape, scale):
             index.append(i)
-            polys.append([res[0, 0], res[1, 0], res[0, 1], res[1, 1],
-                          res[0, 2], res[1, 2], res[0, 3], res[1, 3]])
+            polys.append([res[0, 0], res[1, 0],
+                          res[0, 1], res[1, 1],
+                          res[0, 2], res[1, 2],
+                          res[0, 3], res[1, 3]])
     return np.array(polys), index
 
 
@@ -118,7 +133,7 @@ def get_boxes(score, geo, score_thresh=0.9, nms_thresh=0.2, scale=4):
             boxes       : final polys <numpy.ndarray, (n,9)>
     '''
 
-    score = score[0, :, :]  # 0 for first sample
+    score = score[0, :, :]
     xy_text = np.argwhere(score > score_thresh)  # n x 2, format is [r, c]
     if xy_text.size == 0:
         return None
@@ -174,12 +189,19 @@ def detect(img, model, device,
             detected polys
     '''
 
+    print(f">>> original img size: {np.array(img).shape}")
+
     # Resize input image to meet model's input expectation
     img, ratio_h, ratio_w = resize_img(img)
 
+    print(f">>> resized img size: {np.array(img).shape}")
+    print(f">>> ratio_h: {ratio_h}")
+    print(f">>> ratio_w: {ratio_w}")
+
     # Predict
     with torch.no_grad():
-        score, geo = model(load_pil(img, preprocessing_params).to(device))
+        input = load_pil(img, preprocessing_params).to(device)
+        score, geo = model(input)
 
     # Extract boxes
     boxes = get_boxes(score.squeeze(0).cpu().numpy(),

@@ -10,7 +10,9 @@ from .deeplapv3plus import (deeplabv3plus_mobilenet, deeplabv3plus_resnet50,
                             deeplabv3plus_resnet101)
 from .efficientnet import EfficientNetFeat
 from .pvanet import PVANetFeat
-from .res2net_v1b import res2net50_v1b_feature_extractor, res2net101_v1b_feature_extractor
+from .res2net_v1b import (res2net50_v1b_feature_extractor,
+                          res2net101_v1b_feature_extractor)
+from .resnet import resnet34, resnet50, resnet101
 from .vgg import vgg16_bn
 from .xception import pretrained_settings as xception_pretrained_settings
 from .xception import xception_feature_extractor
@@ -20,6 +22,21 @@ preprocessing_params = {
     "vgg16_bn": {
         "mean": (0.5, 0.5, 0.5),
         "std": (0.5, 0.5, 0.5)
+    },
+
+    "resnet": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+
+    "res2net": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+
+    "xception": {
+        "mean": xception_pretrained_settings["xception"]["imagenet"]["mean"],
+        "std": xception_pretrained_settings["xception"]["imagenet"]["std"]
     },
 
     "efficientnet": {
@@ -36,16 +53,6 @@ preprocessing_params = {
         "mean": (0.485, 0.456, 0.406),
         "std": (0.229, 0.224, 0.225)
     },
-
-    "res2net": {
-        "mean": (0.485, 0.456, 0.406),
-        "std": (0.229, 0.224, 0.225)
-    },
-
-    "xception": {
-        "mean": xception_pretrained_settings["xception"]["imagenet"]["mean"],
-        "std": xception_pretrained_settings["xception"]["imagenet"]["std"]
-    }
 }
 
 ###############################################################################
@@ -56,16 +63,17 @@ preprocessing_params = {
 class ConvBNReLU(nn.Module):
     """A commonly used block in CNNs consisting of a 2D-convolution layer, followed by batch normaliztion and ReLU activation."""
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
         super(ConvBNReLU, self).__init__()
 
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
+        self.stride = stride
         self.padding = padding
-        # TODO: Add stride parameter?
 
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
+                              stride=stride,
                               padding=padding)
         self.bn = nn.BatchNorm2d(out_channels)
 
@@ -94,6 +102,10 @@ class VGG16BNFeat(nn.Module):
             x = m(x)
             if isinstance(m, nn.MaxPool2d):
                 out.append(x)
+
+        # In our experiments, we also adopted the
+        # well-known VGG16 [32] model, where feature maps after
+        # pooling-2 to pooling-5 are extracted.
         return out[1:]
 
 
@@ -206,9 +218,7 @@ def pvanet_feature_extractor(pretrained: bool):
 class FeatureMerger(nn.Module):
     def __init__(self,
                  input_feature_dims,
-                 inter_out_channels=[
-                     128, 64, 32
-                 ],
+                 inter_out_channels=[128, 64, 32],
                  out_channels: int = 32):
         """Feature merger module. It merges the feature maps of different layers from the CNN encoder
         to become a single feature map.
@@ -242,7 +252,8 @@ class FeatureMerger(nn.Module):
                     ConvBNReLU(cout, cout, 3, padding=1))
             prev_channels = cout
 
-        self.out_conv_bn_relu = ConvBNReLU(prev_channels, out_channels, 3, 1)
+        self.out_conv_bn_relu = ConvBNReLU(
+            prev_channels, out_channels, 3, padding=1)
 
     def forward(self, x):
         y = x[-1]
@@ -266,7 +277,9 @@ class FeatureMerger(nn.Module):
 
 
 class Output(nn.Module):
-    def __init__(self, in_channels: int = 32, scope: int = 512):
+    def __init__(self,
+                 in_channels: int = 32,
+                 scope: int = 512):
         """EAST output module. Takes a feature map from an earlier layer and
         outputs 3 feature maps, one for each output:
             a) score,
@@ -287,7 +300,6 @@ class Output(nn.Module):
         self.conv1 = nn.Conv2d(in_channels, 1, 1)
         self.conv2 = nn.Conv2d(in_channels, 4, 1)
         self.conv3 = nn.Conv2d(in_channels, 1, 1)
-        self.scope = scope
 
         # Weights intialization
         for m in self.modules():
@@ -301,18 +313,22 @@ class Output(nn.Module):
     def forward(self, x):
         score = torch.sigmoid(self.conv1(x))
         loc = torch.sigmoid(self.conv2(x)) * self.scope
+
         # 2pi - 360 deg
         # 0.5pi -> x = (0.5 * 360)/2 = 90 deg
         # angle can only be in the range [-90, 90] degrees
         angle = (torch.sigmoid(self.conv3(x)) - 0.5) * math.pi
+
+        # Concat loc and angle map as a single geo map
         geo = torch.cat((loc, angle), 1)
+
         return score, geo
 
 
 class EAST(nn.Module):
-    """Zhou, X., Yao, C., Wen, H., Wang, Y., Zhou, S., He, W., & Liang, J. (2017). 
-    EAST: An Efficient and Accurate Scene Text Detector. 
-    2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017-Janua, 2642–2651. 
+    """Zhou, X., Yao, C., Wen, H., Wang, Y., Zhou, S., He, W., & Liang, J. (2017).
+    EAST: An Efficient and Accurate Scene Text Detector.
+    2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017-Janua, 2642–2651.
     https://doi.org/10.1109/CVPR.2017.283
     """
 
@@ -320,7 +336,7 @@ class EAST(nn.Module):
                  pretrained: bool = True,
                  backbone: str = "efficientnet-b3",
                  scope: int = 512,
-                 merger_inter_out_channels=[128, 64, 32, 32],
+                 merger_inter_out_channels=[128, 64, 32],
                  merged_channels: int = 32,
                  ):
         super(EAST, self).__init__()
@@ -333,23 +349,7 @@ class EAST(nn.Module):
         self.model_type = "east"
 
         # Create backbone model
-        if backbone == "vgg16_bn":
-            self.extractor = vgg16_bn_feature_extractor(pretrained)
-        elif backbone in [f"efficientnet-b{i}" for i in range(8)]:
-            self.extractor = efficientnet_feature_extractor(pretrained,
-                                                            model_name=backbone)
-        elif backbone == "pvanet":
-            self.extractor = pvanet_feature_extractor(pretrained)
-        elif backbone == "xception":
-            self.extractor = xception_feature_extractor(pretrained)
-        elif "res2net" in backbone:
-            if backbone == "res2net50_v1b":
-                self.extractor = res2net50_v1b_feature_extractor(pretrained)
-            elif backbone == "res2net101_v1b":
-                self.extractor = res2net101_v1b_feature_extractor(pretrained)
-            else:
-                raise ValueError(f"Unknown res2net backbone: {backbone}")
-        elif "deeplabv3plus" in backbone:
+        if "deeplabv3plus" in backbone:
             backbone = backbone.split("_")[-1]
 
             deeplabv3plus_params = {
@@ -371,6 +371,38 @@ class EAST(nn.Module):
                     f"Unknown backbone for DeepLabV3Plus: {backbone}")
 
             self.model_type = "deeplabv3plus"
+
+        elif backbone == "vgg16_bn":
+            self.extractor = vgg16_bn_feature_extractor(pretrained)
+
+        elif backbone in [f"efficientnet-b{i}" for i in range(8)]:
+            self.extractor = efficientnet_feature_extractor(pretrained,
+                                                            model_name=backbone)
+
+        elif backbone == "pvanet":
+            self.extractor = pvanet_feature_extractor(pretrained)
+
+        elif backbone == "xception":
+            self.extractor = xception_feature_extractor(pretrained)
+
+        elif "resnet" in backbone:
+            if backbone == "resnet34":
+                self.extractor = resnet34(pretrained)
+            elif backbone == "resnet50":
+                self.extractor = resnet50(pretrained)
+            elif backbone == "resnet101":
+                self.extractor = resnet101(pretrained)
+            else:
+                raise ValueError(f"Unknown resnet backbone: {backbone}")
+
+        elif "res2net" in backbone:
+            if backbone == "res2net50_v1b":
+                self.extractor = res2net50_v1b_feature_extractor(pretrained)
+            elif backbone == "res2net101_v1b":
+                self.extractor = res2net101_v1b_feature_extractor(pretrained)
+            else:
+                raise ValueError(f"Unknown res2net backbone: {backbone}")
+
         else:
             raise ValueError(f"Unknown backbone: {backbone}")
 
@@ -394,8 +426,11 @@ class EAST(nn.Module):
             x = self.merge(x)
 
         # DeepLabV3Plus model with encoder-decoder and atrous convolution
-        else:
+        elif self.model_type == "deeplabv3plus":
             x = self.extractor(x)
+
+        else:
+            raise RuntimeError(f"Unknown model type: {self.model_type}")
 
         x = self.output(x)
         return x
@@ -422,12 +457,14 @@ class EAST(nn.Module):
         return model
 
     def get_preprocessing_params(self):
-        """Get input preprocessing parameters that are used to train the model."""
+        """Get input preprocessing (input normalization) parameters that are used to train the model."""
 
         if "efficientnet" in self.backbone:
             return preprocessing_params["efficientnet"]
         elif "deeplabv3plus" in self.backbone:
             return preprocessing_params["deeplabv3plus"]
+        elif "resnet" in self.backbone:
+            return preprocessing_params["resnet"]
         elif "res2net" in self.backbone:
             return preprocessing_params["res2net"]
         else:
@@ -438,11 +475,11 @@ class EAST(nn.Module):
 
 if __name__ == '__main__':
     # device = "cuda" if torch.cuda.is_available() else "cpu"
-
     device = "cpu"
-    # model = deeplabv3plus_resnet50(3, pretrained_backbone=False)
-    model = EAST(True, "deeplabv3plus_resnet50", 32)
+
+    # model = EAST(True, "deeplabv3plus_resnet50", 32)
     # model = EAST.from_config_file().to(device)
+    model = EAST(backbone="resnet50")
     print(model)
 
     x = torch.randn(2, 3, 512, 512).to(device)
