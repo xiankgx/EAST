@@ -147,7 +147,8 @@ class Trainer(object):
                                   gt_path=self.config["training"]["annotations_root_dir"]["train"],
                                   scale=scale,
                                   normalization_params=normalization_params,
-                                  length=self.config["model"]["scope"])
+                                  length=self.config["model"]["scope"]
+                                  )
         train_loader = data.DataLoader(trainset,
                                        batch_size=self.config["training"]["batch_size"],
                                        shuffle=True,
@@ -160,7 +161,8 @@ class Trainer(object):
                                      gt_path=self.config["training"]["annotations_root_dir"]["test"],
                                      scale=scale,
                                      normalization_params=normalization_params,
-                                     length=self.config["model"]["scope"])
+                                     length=self.config["model"]["scope"]
+                                     )
             test_loader = data.DataLoader(testset,
                                           batch_size=self.config["training"]["batch_size"],
                                           shuffle=True,
@@ -208,6 +210,17 @@ class Trainer(object):
                     ignored_map.to(device)
                 pred_score, pred_geo = model(img)
 
+                # print(f"pred_geo.shape: {pred_geo.shape}")
+
+                # # XXX Rescale geometry values
+                # input_h = img.shape[2]
+                # input_w = img.shape[3]
+                # # print(f"input_h: {input_h}")
+                # # print(f"input_w: {input_w}")
+
+                # pred_geo[:, [0, 1], :, :] *= input_h
+                # pred_geo[:, [2, 3], :, :] *= input_w
+
                 loss = criterion(gt_score, pred_score.to(gt_score.dtype),
                                  gt_geo, pred_geo.to(gt_geo.dtype),
                                  ignored_map)
@@ -222,6 +235,7 @@ class Trainer(object):
                     loss.backward()
                 optimizer.step()
                 scheduler.step()
+                # train_loader.dataset.step()
 
                 global_step += 1
                 if global_step % 100 == 0:

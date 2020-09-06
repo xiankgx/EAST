@@ -9,10 +9,12 @@ import yaml
 from .deeplapv3plus import (deeplabv3plus_mobilenet, deeplabv3plus_resnet50,
                             deeplabv3plus_resnet101)
 from .efficientnet import EfficientNetFeat
+from .mobilenet import InvertedResidual, mobilenet_v2
 from .pvanet import PVANetFeat
 from .res2net_v1b import (res2net50_v1b_feature_extractor,
                           res2net101_v1b_feature_extractor)
 from .resnet import resnet34, resnet50, resnet101
+from .u2net import U2NET, U2NETP
 from .vgg import vgg16_bn
 from .xception import pretrained_settings as xception_pretrained_settings
 from .xception import xception_feature_extractor
@@ -45,6 +47,16 @@ preprocessing_params = {
     },
 
     "pvanet": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+
+    "mobilenetv2": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+
+    "u2net": {
         "mean": (0.485, 0.456, 0.406),
         "std": (0.229, 0.224, 0.225)
     },
@@ -187,6 +199,26 @@ class PVANetFeat4EAST(PVANetFeat):
         return [x1, x2, x3, x4]
 
 
+class MobileNetV2Feat(nn.Module):
+    """MobileNet v2 feature extractor for EAST"""
+
+    def __init__(self, pretrained=True):
+        super(MobileNetV2Feat, self).__init__()
+        backbone = mobilenet_v2(pretrained)
+        self.features = backbone.features
+        self.extract_layers = [3, 6, 13, 18]
+
+    def forward(self, x):
+        out = []
+        for i, m in enumerate(self.features):
+            x = m(x)
+            if i in self.extract_layers:
+                out.append(x)
+            # print(f">>> layer i: {i}, output shape: {x.shape}")
+
+        return out
+
+
 def vgg16_bn_feature_extractor(pretrained: bool):
     """Create a VGG16 BN feature extractor model for EAST."""
     model = VGG16BNFeat(pretrained)
@@ -207,6 +239,29 @@ def pvanet_feature_extractor(pretrained: bool):
     model = PVANetFeat4EAST()
     if pretrained:
         print("Warning, no pretrained weights for PVANet backbone! Note: This is not an error.")
+    return model
+
+
+def mobilenetv2_feature_extractor(pretrained: bool):
+    model = MobileNetV2Feat(pretrained)
+    return model
+
+
+def u2net_feature_extractor(pretrained: bool, portable=False):
+    if portable:
+        model = U2NETP()
+
+        if pretrained:
+            print("Warning, no pretrained weights for portable U2Net backbone.")
+    else:
+        model = U2NET()
+
+        if pretrained:
+            model.load_state_dict(torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                                          "u2net.pth"),
+                                             map_location="cpu"),
+                                  strict=False)
+
     return model
 
 
@@ -244,8 +299,9 @@ class FeatureMerger(nn.Module):
 
         prev_channels = input_feature_dims[-1]
         for i, (cin, cout) in enumerate(zip(input_feature_dims[:-1][::-1], inter_out_channels)):
-            # print(f"i={i}a, in: {prev_channels + cin}, out: {cout}")
-            # print(f"i={i}b, in: {cout}, out: {cout}")
+            print(f"prev_channels: {prev_channels}, cin: {cin}, cout: {cout}")
+            print(f"i={i}a, in: {prev_channels + cin}, out: {cout}")
+            print(f"i={i}b, in: {cout}, out: {cout}")
             setattr(self, f"block_{i+1}_conv_bn_relu_1",
                     ConvBNReLU(prev_channels + cin, cout, 1, padding=0))
             setattr(self, f"block_{i+1}_conv_bn_relu_2",
@@ -312,6 +368,7 @@ class Output(nn.Module):
 
     def forward(self, x):
         score = torch.sigmoid(self.conv1(x))
+
         loc = torch.sigmoid(self.conv2(x)) * self.scope
 
         # 2pi - 360 deg
@@ -403,6 +460,17 @@ class EAST(nn.Module):
             else:
                 raise ValueError(f"Unknown res2net backbone: {backbone}")
 
+        elif "mobilenetv2" in backbone:
+            self.extractor = mobilenetv2_feature_extractor(pretrained)
+
+        elif "u2net" in backbone:
+            if backbone == "u2net":
+                self.extractor = u2net_feature_extractor(pretrained, False)
+            elif backbone == "u2netp":
+                self.extractor = u2net_feature_extractor(pretrained, True)
+            else:
+                raise ValueError(f"Unknown u2net backbone: {backbone}")
+
         else:
             raise ValueError(f"Unknown backbone: {backbone}")
 
@@ -467,6 +535,8 @@ class EAST(nn.Module):
             return preprocessing_params["resnet"]
         elif "res2net" in self.backbone:
             return preprocessing_params["res2net"]
+        elif "u2net" in self.backbone:
+            return preprocessing_params["u2net"]
         else:
             return preprocessing_params[self.backbone]
 
@@ -479,10 +549,14 @@ if __name__ == '__main__':
 
     # model = EAST(True, "deeplabv3plus_resnet50", 32)
     # model = EAST.from_config_file().to(device)
-    model = EAST(backbone="resnet50")
+    # model = MobileNetV2Feat()
+    model = EAST(backbone="u2net")
     print(model)
 
     x = torch.randn(2, 3, 512, 512).to(device)
+    # out = model(x)
+    # for t in out:
+    #     print(t.shape)
     score, geo = model(x)
 
     scale = score.size(2)/512

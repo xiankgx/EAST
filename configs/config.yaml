@@ -1,12 +1,12 @@
 model:
   pretrained: true
-  backbone: "resnet50"
+  backbone: "pvanet"
   scope: 512
   merger_inter_out_channels: [128, 64, 32]
   merged_channels: 32
 
 training:
-  prefix: "./runs/rn50_scope512_inter128_64_32_merged32_icdar2015/"
+  prefix: "./runs/pvanet_scope512_inter128_64_32_merged32_icdar2015/"
   img_root_dir:
     train: "../datasets/ICDAR_2015/train_img"
     test: "../datasets/ICDAR_2015/train_img"
@@ -15,7 +15,7 @@ training:
     test: "../datasets/ICDAR_2015/train_gt"
   batch_size: 3
   learning_rate: 0.001
-  epochs: 1000
+  epochs: 500
   num_workers: 16
   checkpoint:
     frequency: 500

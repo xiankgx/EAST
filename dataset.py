@@ -437,27 +437,27 @@ def crop_img(img: Image, vertices, labels, length: int):
     new_vertices[:, [1, 3, 5, 7]] -= start_h
 
     # Only keep boxes that have at least two points in the cropped patch
-    min_points_inside_region = 1
-    new_verticles_filtered = []
-    for v in new_vertices:
-        inside_count = 0
+    # min_points_inside_region = 1
+    # new_verticles_filtered = []
+    # for v in new_vertices:
+    #     inside_count = 0
 
-        for _v in v.reshape(-1, 2):
-            x = _v[0]
-            y = _v[1]
+    #     for _v in v.reshape(-1, 2):
+    #         x = _v[0]
+    #         y = _v[1]
 
-            if (x >= 0 and x <= length) and (y >= 0 and y <= length):
-                inside_count += 1
+    #         if (x >= 0 and x <= length) and (y >= 0 and y <= length):
+    #             inside_count += 1
 
-            if inside_count >= min_points_inside_region:
-                break
+    #         if inside_count >= min_points_inside_region:
+    #             break
 
-        # If at least two points of box is within image, consider ok
-        if inside_count >= min_points_inside_region:
-            new_verticles_filtered.append(v)
-        # else:
-        #     print("Dropped box")
-    new_vertices = np.array(new_verticles_filtered)
+    #     # If at least two points of box is within image, consider ok
+    #     if inside_count >= min_points_inside_region:
+    #         new_verticles_filtered.append(v)
+    #     # else:
+    #     #     print("Dropped box")
+    # new_vertices = np.array(new_verticles_filtered)
 
     return region, new_vertices
 
@@ -519,6 +519,9 @@ def get_score_geo(img, vertices, labels, scale, length):
             score gt, geo gt, ignored
     '''
 
+    assert img.height == length
+    assert img.width == length
+
     # Initialize the 3 label maps with zeros
     score_map = np.zeros((int(img.height * scale), int(img.width * scale), 1),
                          np.float32)
@@ -530,8 +533,8 @@ def get_score_geo(img, vertices, labels, scale, length):
     index = np.arange(0, length, int(1/scale))
     index_x, index_y = np.meshgrid(index, index)
 
-    ignored_polys = []
     polys = []
+    ignored_polys = []
     for i, vertice in enumerate(vertices):
         if labels[i] == 0:
             ignored_polys.append(
@@ -596,7 +599,9 @@ class custom_dataset(data.Dataset):
                  gt_path: str,
                  scale: float,
                  normalization_params,
-                 length: int = 512):
+                 #  lengths=[384, 416, 448, 480, 512, 544, 576, 608, 640],
+                 length: int = 512
+                 ):
         """custom dataset
 
         Args:
@@ -616,8 +621,11 @@ class custom_dataset(data.Dataset):
 
         self.scale = scale
         self.normalization_params = normalization_params
+        # self.lengths = lengths
         self.length = length
 
+        # # Current length
+        # self.step()
         # self.transform = iaa.Sequential([
         #     # Flip
         #     iaa.Fliplr(p=0.5),
@@ -714,3 +722,8 @@ class custom_dataset(data.Dataset):
         #                                                 self.length)
 
         # return self.to_tensor(img), score_map, geo_map, ignored_map
+
+    # def step(self):
+    #     """Randomly select an input shape."""
+    #     self.length = np.random.choice(self.lengths)
+    #     # print(f"Current input shape: {self.length}")

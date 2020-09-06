@@ -23,11 +23,11 @@ def resize_img(img: Image):
     resize_h = h
 
     # Make divisible by 2*5 = 32
-    # resize_h = resize_h if resize_h % 32 == 0 else int(resize_h / 32) * 32
-    # resize_w = resize_w if resize_w % 32 == 0 else int(resize_w / 32) * 32
+    resize_h = resize_h if resize_h % 32 == 0 else int(resize_h / 32) * 32
+    resize_w = resize_w if resize_w % 32 == 0 else int(resize_w / 32) * 32
     # XXX At the moment, the model can only predict values in range [0, scope] depending on scope used during training
-    resize_h = 512
-    resize_w = 512
+    # resize_h = 512
+    # resize_w = 512
 
     img = img.resize((resize_w, resize_h), Image.BILINEAR)
     ratio_h = resize_h / h
@@ -97,21 +97,26 @@ def restore_polys(valid_pos, valid_geo, score_shape, scale=4):
     print(f">>> restore_polys: angle: {angle}")
 
     for i in range(valid_pos.shape[0]):
+        # Position of pixel with detection (confidence > conf_thresh)
         x = valid_pos[i, 0]
         y = valid_pos[i, 1]
 
+        # Get box
         y_min = y - d[0, i]
         y_max = y + d[1, i]
         x_min = x - d[2, i]
         x_max = x + d[3, i]
-        rotate_mat = get_rotate_mat(-angle[i])
 
-        temp_x = np.array([[x_min, x_max, x_max, x_min]]) - x
-        temp_y = np.array([[y_min, y_min, y_max, y_max]]) - y
+        # Rotate
+        rotate_mat = get_rotate_mat(-angle[i])
+        anchor_x = x
+        anchor_y = y
+        temp_x = np.array([[x_min, x_max, x_max, x_min]]) - anchor_x
+        temp_y = np.array([[y_min, y_min, y_max, y_max]]) - anchor_y
         coordidates = np.concatenate((temp_x, temp_y), axis=0)
         res = np.dot(rotate_mat, coordidates)
-        res[0, :] += x
-        res[1, :] += y
+        res[0, :] += anchor_x
+        res[1, :] += anchor_y
 
         if is_valid_poly(res, score_shape, scale):
             index.append(i)
@@ -134,6 +139,8 @@ def get_boxes(score, geo, score_thresh=0.9, nms_thresh=0.2, scale=4):
     '''
 
     score = score[0, :, :]
+    print(f">>> score min: {score.min()}")
+    print(f">>> score max: {score.max()}")
     xy_text = np.argwhere(score > score_thresh)  # n x 2, format is [r, c]
     if xy_text.size == 0:
         return None
@@ -202,6 +209,12 @@ def detect(img, model, device,
     with torch.no_grad():
         input = load_pil(img, preprocessing_params).to(device)
         score, geo = model(input)
+        # h, w = input.shape[2:]
+        # # h, w = 512, 512
+        # print(f">>> h: {h}")
+        # print(f">>> w: {w}")
+        # geo[:, [0, 1], :, :] *= h
+        # geo[:, [2, 3], :, :] *= w
 
     # Extract boxes
     boxes = get_boxes(score.squeeze(0).cpu().numpy(),
@@ -212,6 +225,7 @@ def detect(img, model, device,
 
     # Resize boxes
     return adjust_ratio(boxes, ratio_w, ratio_h)
+    # return boxes
 
 
 def plot_boxes(img, boxes):
@@ -378,7 +392,9 @@ class Predictor(object):
 
         print("Done!")
 
-    def predict_dir(self, input_dir, output_dir="./predictions/"):
+    def predict_dir(self, input_dir, output_dir="./predictions/", 
+                    score_thresh=0.9,
+                    nms_thresh=0.2):
         """Make prediction on images in a given directory.
 
         Args:
@@ -396,9 +412,12 @@ class Predictor(object):
         for p in images:
             boxes = self.predict(p,
                                  save_img=True,
-                                 out_img_path=os.path.join(img_dir, os.path.basename(p)))
-            if boxes is not None:
-                with open(os.path.join(res_dir, os.path.splitext(os.path.basename(p))[0] + ".txt"), "w") as f:
+                                 out_img_path=os.path.join(img_dir, os.path.basename(p)),
+                                 score_thresh=score_thresh,
+                                 nms_thresh=nms_thresh)
+
+            with open(os.path.join(res_dir, os.path.splitext(os.path.basename(p))[0] + ".txt"), "w") as f:
+                if boxes is not None:
                     for b in boxes:
                         f.write(
                             f"{','.join([str(int(v)) for v in b.tolist()])}\n")

@@ -1,0 +1,25 @@
+model:
+  pretrained: true
+  backbone: "vgg16_bn"
+  scope: 512
+  merger_inter_out_channels: [128, 64, 32]
+  merged_channels: 32
+
+training:
+  prefix: "./runs/vgg16bn_scope512_inter128_64_32_merged32_icdar2015/"
+  img_root_dir:
+    train: "../datasets/ICDAR_2015/train_img"
+    test: "../datasets/ICDAR_2015/train_img"
+  annotations_root_dir:
+    train: "../datasets/ICDAR_2015/train_gt"
+    test: "../datasets/ICDAR_2015/train_gt"
+  batch_size: 3
+  learning_rate: 0.001
+  epochs: 1000
+  num_workers: 16
+  checkpoint:
+    frequency: 500
+    max_checkpoints: 5
+  multi_gpu: false
+  mixed_precision: true
+  resume: true
