@@ -18,6 +18,7 @@ from .u2net import U2NET, U2NETP
 from .vgg import vgg16_bn
 from .xception import pretrained_settings as xception_pretrained_settings
 from .xception import xception_feature_extractor
+from .densenet import densenet121, densenet161, densenet169, densenet201
 
 preprocessing_params = {
     # VGG
@@ -35,6 +36,12 @@ preprocessing_params = {
         "mean": (0.485, 0.456, 0.406),
         "std": (0.229, 0.224, 0.225)
     },
+
+    "densenet": {
+        "mean": (0.485, 0.456, 0.406),
+        "std": (0.229, 0.224, 0.225)
+    },
+
 
     "xception": {
         "mean": xception_pretrained_settings["xception"]["imagenet"]["mean"],
@@ -265,6 +272,18 @@ def u2net_feature_extractor(pretrained: bool, portable=False):
     return model
 
 
+def densenet_feature_extractor(pretrained: bool, name):
+    if name == "densenet121":
+        model = densenet121(pretrained)
+    elif name == "densenet169":
+        model = densenet169(pretrained)
+    elif name == "densenet201":
+        model = densenet201(pretrained)
+    elif name == "densenet161":
+        model = densenet161(pretrained)
+
+    return model
+
 ###############################################################################
 # EAST model and sub-modules
 ###############################################################################
@@ -310,6 +329,17 @@ class FeatureMerger(nn.Module):
 
         self.out_conv_bn_relu = ConvBNReLU(
             prev_channels, out_channels, 3, padding=1)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight,
+                                        mode='fan_out',
+                                        nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         y = x[-1]
@@ -471,6 +501,9 @@ class EAST(nn.Module):
             else:
                 raise ValueError(f"Unknown u2net backbone: {backbone}")
 
+        elif "densenet" in backbone:
+            self.extractor = densenet_feature_extractor(pretrained, backbone)
+
         else:
             raise ValueError(f"Unknown backbone: {backbone}")
 
@@ -537,6 +570,8 @@ class EAST(nn.Module):
             return preprocessing_params["res2net"]
         elif "u2net" in self.backbone:
             return preprocessing_params["u2net"]
+        elif "densenet" in self.backbone:
+            return preprocessing_params["densenet"]
         else:
             return preprocessing_params[self.backbone]
 

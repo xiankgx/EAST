@@ -1,12 +1,12 @@
 model:
   pretrained: true
-  backbone: "pvanet"
+  backbone: "densenet169"
   scope: 512
   merger_inter_out_channels: [128, 64, 32]
   merged_channels: 32
 
 training:
-  prefix: "./runs/pvanet_scope512_inter128_64_32_merged32_icdar2015/"
+  prefix: "./runs/densenet169_scope512_inter128_64_32_merged32_icdar2015/"
   img_root_dir:
     train: "../datasets/ICDAR_2015/train_img"
     test: "../datasets/ICDAR_2015/train_img"

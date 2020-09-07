@@ -126,6 +126,12 @@ def move_points(vertices, index1, index2, r, coef):
             vertices: vertices where one edge has been shinked
     '''
 
+    # print(f">>>move_points: vertices: {vertices}")
+    # print(f">>>move_points: index1: {index1}")
+    # print(f">>>move_points: index2: {index2}")
+    # print(f">>>move_points: r: {r}")
+    # print(f">>>move_points: coef: {coef}")
+
     index1 = index1 % 4
     index2 = index2 % 4
     x1_index = index1 * 2 + 0
@@ -181,9 +187,13 @@ def shrink_poly(vertices, coef: float = 0.3):
         offset = 1  # two longer edges are (x2y2-x3y3) & (x4y4-x1y1)
 
     v = vertices.copy()
+    # print(f">>> move point: {0 + offset} and {1 + offset}")
     v = move_points(v, 0 + offset, 1 + offset, r, coef)
+    # print(f">>> move point: {2 + offset} and {3 + offset}")
     v = move_points(v, 2 + offset, 3 + offset, r, coef)
+    # print(f">>> move point: {1 + offset} and {2 + offset}")
     v = move_points(v, 1 + offset, 2 + offset, r, coef)
+    # print(f">>> move point: {3 + offset} and {4 + offset}")
     v = move_points(v, 3 + offset, 4 + offset, r, coef)
     return v
 
