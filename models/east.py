@@ -327,8 +327,8 @@ class FeatureMerger(nn.Module):
                     ConvBNReLU(cout, cout, 3, padding=1))
             prev_channels = cout
 
-        self.out_conv_bn_relu = ConvBNReLU(
-            prev_channels, out_channels, 3, padding=1)
+        self.out_conv_bn_relu = ConvBNReLU(prev_channels, out_channels, 3,
+                                           padding=1)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -579,23 +579,34 @@ class EAST(nn.Module):
 ###############################################################################
 
 if __name__ == '__main__':
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = "cpu"
+    # # device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cpu"
 
-    # model = EAST(True, "deeplabv3plus_resnet50", 32)
-    # model = EAST.from_config_file().to(device)
-    # model = MobileNetV2Feat()
-    model = EAST(backbone="u2net")
-    print(model)
+    # # model = EAST(True, "deeplabv3plus_resnet50", 32)
+    # # model = EAST.from_config_file().to(device)
+    # # model = MobileNetV2Feat()
+    # model = EAST(backbone="mobilenetv2")
+    # print(model)
 
-    x = torch.randn(2, 3, 512, 512).to(device)
-    # out = model(x)
-    # for t in out:
-    #     print(t.shape)
-    score, geo = model(x)
+    # x = torch.randn(2, 3, 512, 512).to(device)
+    # # out = model(x)
+    # # for t in out:
+    # #     print(t.shape)
+    # score, geo = model(x)
 
-    scale = score.size(2)/512
+    # scale = score.size(2)/512
 
-    print(f"score shape   : {score.shape}")
-    print(f"geometry shape: {geo.shape}")
-    print(f"scale         : {scale}")
+    # print(f"score shape   : {score.shape}")
+    # print(f"geometry shape: {geo.shape}")
+    # print(f"scale         : {scale}")
+
+    # from torchsummary import summary
+    from thop import profile, clever_format
+
+    model = EAST(backbone="deeplabv3plus_mobilenetv2")
+    # summary(model, (3, 512, 512))
+    input = torch.rand(1, 3, 512, 512)
+    macs, params = profile(model, inputs=(input,))
+    macs, params = clever_format([macs, params], "%.3f")
+    print(f"macs  : {macs}")
+    print(f"params: {params}")

@@ -196,14 +196,15 @@ def detect(img, model, device,
             detected polys
     '''
 
-    print(f">>> original img size: {np.array(img).shape}")
+    # print(f">>> original img size: {np.array(img).shape}")
 
     # Resize input image to meet model's input expectation
     img, ratio_h, ratio_w = resize_img(img)
 
-    print(f">>> resized img size: {np.array(img).shape}")
-    print(f">>> ratio_h: {ratio_h}")
-    print(f">>> ratio_w: {ratio_w}")
+    # print(f">>> resized img size: {np.array(img).shape}")
+    # print(f">>> ratio_h: {ratio_h}")
+    # print(f">>> ratio_w: {ratio_w}")
+    print(f"score thresh: {score_thresh}")
 
     # Predict
     with torch.no_grad():
@@ -392,7 +393,7 @@ class Predictor(object):
 
         print("Done!")
 
-    def predict_dir(self, input_dir, output_dir="./predictions/", 
+    def predict_dir(self, input_dir, output_dir="./predictions/",
                     score_thresh=0.9,
                     nms_thresh=0.2):
         """Make prediction on images in a given directory.
@@ -412,7 +413,8 @@ class Predictor(object):
         for p in images:
             boxes = self.predict(p,
                                  save_img=True,
-                                 out_img_path=os.path.join(img_dir, os.path.basename(p)),
+                                 out_img_path=os.path.join(
+                                     img_dir, os.path.basename(p)),
                                  score_thresh=score_thresh,
                                  nms_thresh=nms_thresh)
 
@@ -441,6 +443,10 @@ def parse_args():
                         type=str,
                         default="./predictions/",
                         help="Output directory to store predicted results.")
+    parser.add_argument("--score_thresh",
+                        type=float,
+                        default=0.5,
+                        help="Score threshold for detection to be considered valid.")
     args = parser.parse_args()
     return args
 
@@ -448,11 +454,14 @@ def parse_args():
 def main(args):
     predictor = Predictor(config_path=args.config_path)
     if args.input_dir and os.path.isdir(args.input_dir):
-        predictor.predict_dir(args.input_dir, output_dir=args.output_dir)
+        predictor.predict_dir(
+            args.input_dir, output_dir=args.output_dir, score_thresh=args.score_thresh)
     elif args.input and os.path.isfile(args.input):
         boxes = predictor.predict(args.input,
                                   save_img=True,
-                                  out_img_path=os.path.join(args.output_dir, os.path.basename(args.input)))
+                                  out_img_path=os.path.join(
+                                      args.output_dir, os.path.basename(args.input)),
+                                  score_thresh=args.score_thresh)
         if boxes is not None:
             with open(os.path.join(args.output_dir, os.path.splitext(os.path.basename(args.input))[0] + ".txt"), "w") as f:
                 for b in boxes:

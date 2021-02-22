@@ -51,8 +51,10 @@ class DeepLabHeadV3Plus(nn.Module):
         output_feature = self.aspp(feature['out'])
         # print(f"output_feature shape: {output_feature.shape}")
 
-        output_feature = F.interpolate(
-            output_feature, size=low_level_feature.shape[2:], mode='bilinear', align_corners=False)
+        output_feature = F.interpolate(output_feature,
+                                       size=low_level_feature.shape[2:],
+                                       mode='bilinear',
+                                       align_corners=False)
         return self.classifier(torch.cat([low_level_feature, output_feature], dim=1))
 
     def _init_weight(self):
@@ -136,7 +138,8 @@ class ASPPPooling(nn.Sequential):
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(in_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True))
+            nn.ReLU(inplace=True)
+        )
 
     def forward(self, x):
         size = x.shape[-2:]
@@ -147,12 +150,16 @@ class ASPPPooling(nn.Sequential):
 class ASPP(nn.Module):
     def __init__(self, in_channels, atrous_rates):
         super(ASPP, self).__init__()
+
         out_channels = 256
         modules = []
-        modules.append(nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)))
+        modules.append(
+            nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, 1, bias=False),
+                nn.BatchNorm2d(out_channels),
+                nn.ReLU(inplace=True)
+            )
+        )
 
         rate1, rate2, rate3 = tuple(atrous_rates)
         modules.append(ASPPConv(in_channels, out_channels, rate1))
@@ -166,7 +173,8 @@ class ASPP(nn.Module):
             nn.Conv2d(5 * out_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.1),)
+            nn.Dropout(0.1),
+        )
 
     def forward(self, x):
         res = []
